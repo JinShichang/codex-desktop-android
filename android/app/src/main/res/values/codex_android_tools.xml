@@ -1,0 +1,4 @@
+<resources>
+    <string name="codex_android_tools_shortcut">Android 工具</string>
+    <item type="id" name="android_tools_consent" />
+</resources>

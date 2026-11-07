@@ -1,0 +1,6 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.ai.codex.phoneprobe" android:versionCode="1" android:versionName="1.0">
+    <uses-sdk android:minSdkVersion="30" android:targetSdkVersion="37" />
+    <application android:label="Codex phone diagnostics" android:debuggable="true" android:allowBackup="false" android:extractNativeLibs="true" android:theme="@android:style/Theme.Material.Light.NoActionBar">
+        <activity android:name=".ProbeActivity" android:exported="true" android:excludeFromRecents="true" />
+    </application>
+</manifest>

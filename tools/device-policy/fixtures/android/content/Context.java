@@ -1,0 +1,1 @@
+package android.content; public class Context { public java.io.File getNoBackupFilesDir(){return null;} public android.content.pm.ApplicationInfo getApplicationInfo(){return null;} }

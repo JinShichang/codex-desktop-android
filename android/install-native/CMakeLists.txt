@@ -1,0 +1,11 @@
+cmake_minimum_required(VERSION 3.22.1)
+project(codex_install C)
+add_library(codex-install SHARED install-files.c)
+target_compile_features(codex-install PRIVATE c_std_11)
+target_compile_options(codex-install PRIVATE -Wall -Wextra -Werror -fstack-protector-strong)
+target_link_options(codex-install PRIVATE -Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=16384)
+
+add_library(codex-device-files SHARED device-files.c)
+target_compile_features(codex-device-files PRIVATE c_std_11)
+target_compile_options(codex-device-files PRIVATE -Wall -Wextra -Werror -fstack-protector-strong)
+target_link_options(codex-device-files PRIVATE -Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=16384)

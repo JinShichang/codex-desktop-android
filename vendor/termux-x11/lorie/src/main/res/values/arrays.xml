@@ -1,0 +1,161 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string-array name="touchscreenInputModesEntries">
+        <item>触控板</item>
+        <item>模拟触摸屏</item>
+        <item>直接触控</item>
+    </string-array>
+    <string-array name="touchscreenInputModesValues">
+        <item>1</item>
+        <item>2</item>
+        <item>3</item>
+    </string-array>
+    <string-array name="screenIdleTimeoutEntries">
+        <item>永不（保持亮屏）</item>
+        <item>1 分钟</item>
+        <item>5 分钟</item>
+        <item>10 分钟</item>
+        <item>20 分钟</item>
+        <item>1 小时</item>
+        <item>跟随系统</item>
+    </string-array>
+    <string-array name="screenIdleTimeoutValues">
+        <item>never</item>
+        <item>1</item>
+        <item>5</item>
+        <item>10</item>
+        <item>20</item>
+        <item>60</item>
+        <item>system</item>
+    </string-array>
+    <string-array name="transformCapturedPointerEntries">
+        <item>不旋转</item>
+        <item>顺时针旋转</item>
+        <item>逆时针旋转</item>
+        <item>旋转 180°</item>
+        <item>自动（触控板）</item>
+    </string-array>
+    <string-array name="transformCapturedPointerValues">
+        <item>no</item>
+        <item>c</item>
+        <item>cc</item>
+        <item>ud</item>
+        <item>at</item>
+    </string-array>
+    <string-array name="displayResolutionVariants">
+        <item>native</item>
+        <item>scaled</item>
+        <item>exact</item>
+        <item>custom</item>
+    </string-array>
+    <string-array name="displayResolution">
+        <item>320x200</item>
+        <item>320x240</item>
+        <item>352x288</item>
+        <item>400x240</item>
+        <item>640x350</item>
+        <item>640x480</item>
+        <item>800x480</item>
+        <item>800x600</item>
+        <item>1024x768</item>
+        <item>1280x720</item>
+        <item>1280x960</item>
+        <item>1280x1024</item>
+        <item>1400x1050</item>
+        <item>1600x1024</item>
+        <item>1600x1200</item>
+        <item>1366x768</item>
+        <item>1680x1050</item>
+        <item>1920x1080</item>
+        <item>1920x1200</item>
+        <item>2048x1536</item>
+        <item>2560x1600</item>
+        <item>2560x2048</item>
+        <item>3840x2160</item>
+        <item>7680x4320</item>
+    </string-array>
+    <string-array name="displayFilteringVariants">
+        <item>bilinear</item>
+        <item>nearest</item>
+    </string-array>
+    <string-array name="userActionsValues">
+        <item>no action</item>
+        <item>toggle soft keyboard</item>
+        <item>toggle additional key bar</item>
+        <item>open preferences</item>
+        <item>release pointer and keyboard capture</item>
+        <item>toggle fullscreen</item>
+        <item>restart activity</item>
+        <item>exit</item>
+    </string-array>
+    <string-array name="userActionsVolumeDownValues">
+        <item>@array/userActionsValues</item>
+        <item>send volume down</item>
+    </string-array>
+    <string-array name="userActionsVolumeUpValues">
+        <item>@array/userActionsValues</item>
+        <item>send volume up</item>
+    </string-array>
+    <string-array name="userActionsMediaKeyValues">
+        <item>@array/userActionsValues</item>
+        <item>send media action</item>
+    </string-array>
+    <string-array name="forceOrientationVariants">
+        <item>auto</item>
+        <item>portrait</item>
+        <item>landscape</item>
+        <item>reverse portrait</item>
+        <item>reverse landscape</item>
+    </string-array>
+    <string-array name="ekbarPositionValues">
+        <item>top</item>
+        <item>bottom</item>
+        <item>left</item>
+        <item>right</item>
+    </string-array>
+    <string-array name="displayResolutionVariantsEntries">
+        <item>原生分辨率</item>
+        <item>缩放分辨率</item>
+        <item>指定分辨率</item>
+        <item>自定义</item>
+    </string-array>
+    <string-array name="displayFilteringVariantsEntries">
+        <item>双线性插值</item>
+        <item>最近邻插值</item>
+    </string-array>
+    <string-array name="forceOrientationVariantsEntries">
+        <item>自动</item>
+        <item>竖屏</item>
+        <item>横屏</item>
+        <item>反向竖屏</item>
+        <item>反向横屏</item>
+    </string-array>
+    <string-array name="ekbarPositionEntries">
+        <item>顶部</item>
+        <item>底部</item>
+        <item>左侧</item>
+        <item>右侧</item>
+    </string-array>
+    <string-array name="userActionsEntries">
+        <item>不执行操作</item>
+        <item>显示或隐藏软键盘</item>
+        <item>显示或隐藏附加按键栏</item>
+        <item>打开设置</item>
+        <item>释放鼠标和键盘捕获</item>
+        <item>切换全屏</item>
+        <item>重新打开桌面</item>
+        <item>关闭桌面</item>
+    </string-array>
+    <string-array name="userActionsVolumeUpEntries">
+        <item>@array/userActionsEntries</item>
+        <item>发送音量加键</item>
+    </string-array>
+    <string-array name="userActionsVolumeDownEntries">
+        <item>@array/userActionsEntries</item>
+        <item>发送音量减键</item>
+    </string-array>
+    <string-array name="userActionsMediaKeyEntries">
+        <item>@array/userActionsEntries</item>
+        <item>发送媒体按键</item>
+    </string-array>
+</resources>

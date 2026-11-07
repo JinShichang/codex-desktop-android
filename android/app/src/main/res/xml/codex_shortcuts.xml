@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut android:shortcutId="android_tools" android:enabled="true"
+        android:icon="@drawable/lorie_ic_settings" android:shortcutShortLabel="@string/codex_android_tools_shortcut">
+        <intent android:action="android.intent.action.MAIN" android:targetPackage="com.ai.codex" android:targetClass="com.ai.codex.AndroidToolsActivity" />
+    </shortcut>
+    <shortcut android:shortcutId="display_settings" android:enabled="true"
+        android:icon="@drawable/lorie_ic_settings" android:shortcutShortLabel="@string/codex_settings_shortcut">
+        <intent android:action="android.intent.action.MAIN" android:targetPackage="com.ai.codex" android:targetClass="com.termux.x11.LoriePreferences" />
+    </shortcut>
+</shortcuts>

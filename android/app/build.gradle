@@ -1,0 +1,361 @@
+apply plugin: 'com.android.application'
+apply from: '../../tools/recovery/android-signing.gradle'
+android {
+    namespace 'com.ai.codex'
+    compileSdk 37
+    ndkVersion '29.0.14206865'
+    defaultConfig {
+        applicationId 'com.ai.codex'
+        minSdk 30
+        targetSdk 37
+        versionCode 48
+        versionName '0.2.0-dev'
+        testInstrumentationRunner 'com.ai.codex.recovery.HardCrashInstrumentation'
+        ndk { abiFilters 'arm64-v8a' }
+    }
+    compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+    packaging { jniLibs { useLegacyPackaging true } }
+    sourceSets.main.jniLibs.srcDirs = [providers.gradleProperty('codexRuntimeJni').getOrElse('../native/runtime')]
+    sourceSets.debug.jniLibs.srcDirs = [providers.gradleProperty('codexDebugJni').getOrElse('../native/debug')]
+    externalNativeBuild { cmake { path '../install-native/CMakeLists.txt'; version '3.22.1' } }
+    buildTypes { debug { debuggable true } }
+    buildFeatures { aidl true }
+}
+dependencies {
+    implementation project(':lorie')
+    implementation project(':shizukuTransport')
+    implementation 'com.github.MuntashirAkon:libadb-android:3.1.1'
+    implementation 'org.conscrypt:conscrypt-android:2.5.3'
+    implementation 'org.bouncycastle:bcpkix-jdk15to18:1.81'
+    implementation 'androidx.appcompat:appcompat:1.7.1'
+    implementation 'dev.rikka.shizuku:api:13.1.5'
+    implementation 'dev.rikka.shizuku:provider:13.1.5'
+    implementation 'androidx.window:window-java:1.5.0'
+    implementation 'org.apache.commons:commons-compress:1.28.0'
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.json:json:20260719'
+}
+
+// A matched pair of GNU controller/Code Mode binaries is installed separately
+// from the immutable Bionic executor. Existing projects and credentials stay put.
+def gnuEngineAssets = providers.gradleProperty('codexGnuEngineAssets')
+if (gnuEngineAssets.isPresent()) {
+    def supplied = file(gnuEngineAssets.get()).canonicalFile
+    def descriptor = new File(supplied, 'gnu-engine/manifest.json')
+    if (!descriptor.isFile()) throw new GradleException('GNU engine payload manifest is missing')
+    def engine = new groovy.json.JsonSlurper().parse(descriptor)
+    if (engine.schema != 'codex.gnu-engine.payload.v1' || engine.target != 'aarch64-unknown-linux-gnu'
+            || engine.files*.name != ['codex-native', 'codex-code-mode-host'])
+        throw new GradleException('Unsupported GNU engine payload identity')
+    engine.files.each { item ->
+        def binary = new File(supplied, 'gnu-engine/' + item.name)
+        if (!binary.isFile() || binary.length() != item.bytes)
+            throw new GradleException('GNU engine payload size differs: ' + item.name)
+    }
+    android.sourceSets.main.assets.srcDir(supplied)
+}
+
+// A complete first-install release is selected separately from executor assets.
+// No download-supplied checksum can become the installation trust descriptor.
+def phoneImageAssets = providers.gradleProperty('codexPhoneImageAssets')
+if (phoneImageAssets.isPresent()) {
+    def supplied = file(phoneImageAssets.get()).canonicalFile
+    def releaseFile = new File(supplied, 'phone-runtime/release.json')
+    def inventoryFile = new File(supplied, 'phone-runtime/inventory.json')
+    if (!releaseFile.isFile() || !inventoryFile.isFile()) throw new GradleException('Complete phone image release assets are missing')
+    def release = new groovy.json.JsonSlurper().parse(releaseFile)
+    def hash = java.security.MessageDigest.getInstance('SHA-256').digest(inventoryFile.bytes).encodeHex().toString()
+    if (release.format != 'codex.phone-image.v1' || hash != release.inventorySha256
+            || inventoryFile.length() != release.inventoryBytes || release.accountIncluded || release.keyringIncluded) {
+        throw new GradleException('Complete phone image release assets do not match their inventory')
+    }
+    android.sourceSets.main.assets.srcDir(supplied)
+}
+
+// Explicit reviewed deployment only. Merely linking the transport must never
+// select it or embed an obsolete local staging directory by accident.
+def qualifiedExecutorAssets = providers.gradleProperty('codexExecutorAssets')
+def requireExecutor = providers.gradleProperty('codexRequireExecutor').map { it.toBoolean() }.orElse(false)
+if (requireExecutor.get() && !qualifiedExecutorAssets.isPresent()) {
+    throw new GradleException('Production candidate builds require -PcodexExecutorAssets and -PcodexExecutorJni')
+}
+if (qualifiedExecutorAssets.isPresent()) {
+    def supplied = file(qualifiedExecutorAssets.get()).canonicalFile
+    if (!supplied.isDirectory() || !new File(supplied, 'codex-executor-deployment.json').isFile()
+            || !new File(supplied, 'codex-executor-qualification.json').isFile()
+            || !new File(supplied, 'codex-executor-evidence.json').isFile()
+            || !new File(supplied, 'codex-executor-manifest.json').isFile()) {
+        throw new GradleException('Selected executor assets lack the explicit deployment, source manifest or qualification evidence')
+    }
+    android.sourceSets.main.assets.srcDir(supplied)
+    // AAPT's default <dir>_* rule drops Python's __phello__ and other
+    // underscore package directories despite their signed inventory.
+    android.androidResources.ignoreAssetsPattern = '!.svn:!.git:!.DS_Store:!*.scc:!CVS:!thumbs.db:!picasa.ini:!*~'
+}
+
+// A separately selected, manifest-pinned native executor payload. Preserve ELF
+// bytes because both Java and the pre-interpreter admission verify its hashes.
+def executorJni = providers.gradleProperty('codexExecutorJni')
+if (requireExecutor.get() && !executorJni.isPresent()) {
+    throw new GradleException('Production candidate builds require -PcodexExecutorJni')
+}
+if (executorJni.isPresent()) {
+    if (!qualifiedExecutorAssets.isPresent()) throw new GradleException('Executor JNI requires explicit deployment assets')
+    def supplied = file(executorJni.get()).canonicalFile
+    def deployment = new groovy.json.JsonSlurper().parse(new File(file(qualifiedExecutorAssets.get()), 'codex-executor-deployment.json'))
+    def expected = deployment.nativeLibraries.keySet().findAll { !(it in ['libcodex_shizuku_transport.so', 'libcodex_bionic_cwd.so']) }.toSet()
+    def actual = fileTree(new File(supplied, 'arm64-v8a')).files.collect { it.name }.toSet()
+    if (expected != actual) throw new GradleException('Executor JNI differs from its deployment inventory')
+    expected.each { name ->
+        def input = new File(supplied, 'arm64-v8a/' + name)
+        def digest = java.security.MessageDigest.getInstance('SHA-256').digest(input.bytes).encodeHex().toString()
+        if (digest != deployment.nativeLibraries[name]) throw new GradleException('Executor JNI hash differs: ' + name)
+    }
+    android.sourceSets.main.jniLibs.srcDir(supplied)
+    expected.each { name -> android.sourceSets.debug.jniLibs.exclude('**/' + name) }
+    android.packaging.jniLibs.keepDebugSymbols.add('**/lib*.so')
+}
+
+// The main APK is an update of the installed native workspace. Omitting its
+// executor silently launches the legacy client without the projects bind and
+// makes new conversations fail with EACCES. Compilation and unit tests may
+// still run without a package; an APK/AAB must always select both inputs.
+def verifyExecutorPackaging = tasks.register('verifyExecutorPackaging') {
+    def hasAssets = qualifiedExecutorAssets.isPresent()
+    def hasJni = executorJni.isPresent()
+    inputs.property('hasExecutorAssets', hasAssets)
+    inputs.property('hasExecutorJni', hasJni)
+    doLast {
+        if (!hasAssets || !hasJni) {
+            throw new GradleException('Codex APK/AAB packaging requires the reviewed native executor. Use tools/runtime/build-production-candidate.py build --help, or supply both -PcodexExecutorAssets and -PcodexExecutorJni. An incomplete update would break project access (EACCES).')
+        }
+    }
+}
+androidComponents.onVariants(androidComponents.selector().all()) { variant ->
+    def suffix = variant.name.capitalize()
+    tasks.configureEach { task ->
+        if (task.name in ['merge' + suffix + 'Assets', 'package' + suffix, 'package' + suffix + 'Bundle']) {
+            task.dependsOn(verifyExecutorPackaging)
+        }
+    }
+}
+
+// The native file transport fixture executes only these APK-owned public source
+// files. Generated assets are debug-only, so the release has no probe payload.
+def nativeFilesRpcAssets = layout.buildDirectory.dir('generated/nativeFilesRpcAssets')
+abstract class NativeFilesRpcAssets extends Sync {
+    @OutputDirectory abstract DirectoryProperty getOutputDir()
+}
+def syncNativeFilesRpcAssets = tasks.register('syncNativeFilesRpcAssets', NativeFilesRpcAssets) {
+    from(rootProject.file('..')) {
+        include 'tools/executor/exec_server.py', 'tools/executor/native_files.py',
+                'tools/executor/policy_intent.py', 'tools/policy/managed_policy.py',
+                'tools/executor/native_files_server.py', 'tools/executor/native_files_rpc_fixture.py'
+        into 'native-files-rpc'
+    }
+    outputDir.set(nativeFilesRpcAssets)
+    into outputDir
+}
+androidComponents.onVariants(androidComponents.selector().withBuildType('debug')) { variant ->
+    variant.sources.assets.addGeneratedSourceDirectory(syncNativeFilesRpcAssets) { it.outputDir }
+}
+
+def localToolsAssets = layout.buildDirectory.dir('generated/codexToolsAssets')
+def syncLocalToolsAssets = tasks.register('syncCodexToolsAssets', NativeFilesRpcAssets) {
+    from(rootProject.file('../third-party/dsh-go-phone')) { into 'dsh-go-phone-notices' }
+    from(rootProject.file('../tools/runtime/install_phone_mcp.py')) { into 'codex-tools' }
+    from(rootProject.file('../plugins/codex-android')) { into 'codex-android'; exclude '**/__pycache__/**', '**/*.pyc' }
+    from(rootProject.file('../tools/runtime/codex_tools.py')) { into 'codex-tools' }
+    from(rootProject.file('../tools/runtime/codex-workspace-provider.cjs')) { into 'codex-tools' }
+    from(rootProject.file('../tools/runtime/install-workspace-provider.py')) { into 'codex-tools' }
+    from(rootProject.file('../tools/runtime/codex_phone_profile.py')) { into 'codex-tools' }
+    from(rootProject.file('../tools/runtime/codex_native_dialogs.py')) { into 'codex-tools' }
+    from(rootProject.file('../tools/runtime/codex-phone-dialogs.css')) { into 'codex-tools' }
+    from(rootProject.file('../runtime/guest/codex-session.sh')) { into 'codex-tools' }
+    from(rootProject.file('../tools/runtime')) {
+        include 'workspace-node-check.cjs', 'workspace-python-check.py', 'workspace-render-check.py'
+        into 'codex-tools'
+    }
+    from(rootProject.file('../tools/context/codex_agent_context.py')) { into 'codex-tools' }
+    from(rootProject.file('../config/agent-context/codex.v1.json')) {
+        into 'codex-tools'
+        rename { 'agent-environment.v1.json' }
+    }
+    outputDir.set(localToolsAssets)
+    into outputDir
+}
+androidComponents.onVariants(androidComponents.selector().all()) { variant ->
+    variant.sources.assets.addGeneratedSourceDirectory(syncLocalToolsAssets) { it.outputDir }
+}
+
+def localToolsJni = layout.buildDirectory.dir('generated/codexToolsJni')
+abstract class CodexToolsLauncher extends Exec {
+    @OutputDirectory abstract DirectoryProperty getOutputDir()
+}
+def buildLocalToolsLauncher = tasks.register('buildCodexToolsLauncher', CodexToolsLauncher) {
+    def source = rootProject.file('../tools/runtime/codex-tools-launcher.c')
+    def host = System.getProperty('os.name').toLowerCase().contains('windows') ? 'windows-x86_64' :
+            System.getProperty('os.name').toLowerCase().contains('mac') ? 'darwin-x86_64' : 'linux-x86_64'
+    def ndk = androidComponents.sdkComponents.ndkDirectory.get().asFile
+    def toolchain = new File(ndk, 'toolchains/llvm/prebuilt/' + host)
+    def compiler = new File(toolchain, 'bin/clang' + (host.startsWith('windows') ? '.exe' : ''))
+    def binary = localToolsJni.map { it.file('arm64-v8a/libcodex_tools_launcher.so').asFile }
+    outputDir.set(localToolsJni)
+    inputs.file(source)
+    inputs.file(new File(ndk, 'source.properties'))
+    outputs.file(binary)
+    doFirst { binary.get().parentFile.mkdirs() }
+    commandLine compiler.absolutePath, '--target=aarch64-linux-android30',
+            '--sysroot=' + new File(toolchain, 'sysroot').absolutePath,
+            '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror', '-fPIE', '-pie', '-fstack-protector-strong',
+            '-Wl,-z,relro,-z,now,-z,noexecstack,-z,max-page-size=16384,-z,common-page-size=16384',
+            source.absolutePath, '-o', binary.get().absolutePath
+}
+androidComponents.onVariants(androidComponents.selector().all()) { variant ->
+    variant.sources.jniLibs.addGeneratedSourceDirectory(buildLocalToolsLauncher) { it.outputDir }
+}
+def privateExecProbeAssets = layout.buildDirectory.dir('generated/privateExecProbeAssets')
+def syncPrivateExecProbeAssets = tasks.register('syncPrivateExecProbeAssets', NativeFilesRpcAssets) {
+    from(rootProject.file('..')) {
+        include 'tools/executor/exec_server.py', 'tools/executor/native_files.py',
+                'tools/executor/policy_intent.py', 'tools/policy/managed_policy.py',
+                'tools/executor/native_files_rpc_fixture.py',
+                'tools/executor/native_file_streams.py',
+                'tools/executor/private_exec_broker.py', 'tools/executor/private_exec_fixture.py',
+                'tools/executor/native_runtime_startup.py', 'tools/executor/native_path_uri.py',
+                'tools/executor/native_session_recovery.py'
+        into 'private-exec-probe'
+    }
+    outputDir.set(privateExecProbeAssets)
+    into outputDir
+}
+androidComponents.onVariants(androidComponents.selector().withBuildType('debug')) { variant ->
+    variant.sources.assets.addGeneratedSourceDirectory(syncPrivateExecProbeAssets) { it.outputDir }
+}
+// An explicit local staging directory from the authenticated Android CPython
+// recipe. APK signature covers the embedded libraries and standard library.
+android.sourceSets.debug.assets.srcDir(file(providers.gradleProperty('codexDebugAssets').getOrElse('../native/python-debug-assets')))
+
+def managedProcessProbeAssets = layout.buildDirectory.dir('generated/managedProcessProbeAssets')
+def syncManagedProcessProbeAssets = tasks.register('syncManagedProcessProbeAssets', NativeFilesRpcAssets) {
+    from(rootProject.file('..')) {
+        include 'tools/executor/exec_server.py', 'tools/executor/native_files.py',
+                'tools/executor/policy_intent.py', 'tools/policy/managed_policy.py',
+                'tools/executor/native_files_rpc_fixture.py', 'tools/executor/native_process_policy.py',
+                'tools/executor/native-managed-test.py', 'tools/executor/native_managed_android_fixture.py'
+        into 'managed-process-probe'
+    }
+    outputDir.set(managedProcessProbeAssets)
+    into outputDir
+}
+androidComponents.onVariants(androidComponents.selector().withBuildType('debug')) { variant ->
+    variant.sources.assets.addGeneratedSourceDirectory(syncManagedProcessProbeAssets) { it.outputDir }
+}
+
+def processRpcProbeAssets = layout.buildDirectory.dir('generated/processRpcProbeAssets')
+def syncProcessRpcProbeAssets = tasks.register('syncProcessRpcProbeAssets', NativeFilesRpcAssets) {
+    from(rootProject.file('..')) {
+        include 'tools/executor/exec_server.py', 'tools/executor/native_files.py',
+                'tools/executor/policy_intent.py', 'tools/policy/managed_policy.py',
+                'tools/executor/native_files_rpc_fixture.py', 'tools/executor/native_process_policy.py',
+                'tools/executor/native_processes.py', 'tools/executor/test_native_processes_live.py',
+                'tools/executor/native_environment.py', 'tools/executor/native_environment_unicode.py',
+                'tools/executor/native_processes_android_fixture.py'
+        into 'process-rpc-probe'
+    }
+    outputDir.set(processRpcProbeAssets)
+    into outputDir
+}
+androidComponents.onVariants(androidComponents.selector().withBuildType('debug')) { variant ->
+    variant.sources.assets.addGeneratedSourceDirectory(syncProcessRpcProbeAssets) { it.outputDir }
+}
+
+def nativeExecutorProbeAssets = layout.buildDirectory.dir('generated/nativeExecutorProbeAssets')
+def syncNativeExecutorProbeAssets = tasks.register('syncNativeExecutorProbeAssets', NativeFilesRpcAssets) {
+    from(rootProject.file('..')) {
+        include 'tools/executor/exec_server.py', 'tools/executor/native_files.py',
+                'tools/executor/policy_intent.py', 'tools/policy/managed_policy.py',
+                'tools/executor/native_files_rpc_fixture.py', 'tools/executor/native_process_policy.py',
+                'tools/executor/native_processes.py', 'tools/executor/native_file_streams.py',
+                'tools/executor/native_environment.py', 'tools/executor/native_environment_unicode.py',
+                'tools/executor/native_executor_backend.py', 'tools/executor/private_exec_broker.py',
+                'tools/executor/native_runtime_startup.py', 'tools/executor/native_path_uri.py',
+                'tools/executor/native_session_recovery.py',
+                'tools/executor/test_native_processes_live.py', 'tools/executor/test_native_executor_transport.py',
+                'tools/executor/native_executor_android_fixture.py'
+        into 'native-executor-probe'
+    }
+    outputDir.set(nativeExecutorProbeAssets)
+    into outputDir
+}
+androidComponents.onVariants(androidComponents.selector().withBuildType('debug')) { variant ->
+    variant.sources.assets.addGeneratedSourceDirectory(syncNativeExecutorProbeAssets) { it.outputDir }
+}
+
+def gnuManagedProbeAssets = layout.buildDirectory.dir('generated/gnuManagedProbeAssets')
+def syncGnuManagedProbeAssets = tasks.register('syncGnuManagedProbeAssets', NativeFilesRpcAssets) {
+    from(rootProject.file('..')) {
+        include 'tools/executor/exec_server.py', 'tools/executor/native_files.py',
+                'tools/executor/policy_intent.py', 'tools/policy/managed_policy.py',
+                'tools/executor/native_files_rpc_fixture.py', 'tools/executor/native_process_policy.py',
+                'tools/executor/native_processes.py', 'tools/executor/native_environment.py',
+                'tools/executor/native_environment_unicode.py',
+                'tools/executor/gnu-runtime/gnu_process_adapter.py',
+                'tools/executor/gnu-runtime/gnu_runtime_capacity.py',
+                'tools/executor/gnu-runtime/gnu_runtime_address.py',
+                'tools/executor/gnu-runtime/test_gnu_process_adapter.py',
+                'tools/executor/gnu-runtime/managed_android_fixture.py'
+        into 'gnu-managed-probe'
+    }
+    outputDir.set(gnuManagedProbeAssets)
+    into outputDir
+}
+androidComponents.onVariants(androidComponents.selector().withBuildType('debug')) { variant ->
+    variant.sources.assets.addGeneratedSourceDirectory(syncGnuManagedProbeAssets) { it.outputDir }
+}
+
+def gnuExecutorAssets = layout.buildDirectory.dir('generated/gnuExecutorAssets')
+def syncGnuExecutorAssets = tasks.register('syncGnuExecutorAssets', NativeFilesRpcAssets) {
+    from(rootProject.file('..')) {
+        include 'tools/executor/exec_server.py', 'tools/executor/native_files.py',
+                'tools/executor/policy_intent.py', 'tools/policy/managed_policy.py',
+                'tools/executor/native_process_policy.py', 'tools/executor/native_processes.py',
+                'tools/executor/native_file_streams.py', 'tools/executor/native_environment.py',
+                'tools/executor/native_environment_unicode.py', 'tools/executor/native_executor_backend.py',
+                'tools/executor/private_exec_broker.py', 'tools/executor/gnu-runtime/gnu_process_adapter.py',
+                'tools/executor/native_runtime_startup.py', 'tools/executor/native_path_uri.py',
+                'tools/executor/native_session_recovery.py',
+                'tools/executor/gnu-runtime/gnu_runtime_capacity.py',
+                'tools/executor/gnu-runtime/gnu_runtime_address.py',
+                'tools/executor/gnu-runtime/gnu_executor_broker.py'
+        into 'gnu-executor'
+    }
+    outputDir.set(gnuExecutorAssets)
+    into outputDir
+}
+androidComponents.onVariants(androidComponents.selector().withBuildType('debug')) { variant ->
+    variant.sources.assets.addGeneratedSourceDirectory(syncGnuExecutorAssets) { it.outputDir }
+}
+
+// Local native outputs are ignored by Git. A stale diagnostic must never enter
+// production merely because it was left in the runtime build directory.
+tasks.register('verifyRuntimeLibraries') {
+    doLast {
+        def runtime = file(providers.gradleProperty('codexRuntimeJni').getOrElse('../native/runtime'))
+        def allowed = ['libproot.so', 'libproot-loader.so', 'libproot-loader32.so',
+                       'libtalloc.so', 'libandroid-shmem.so']
+            .collect { 'arm64-v8a/' + it }.toSet()
+        def actual = fileTree(runtime).files.collect {
+            runtime.toPath().relativize(it.toPath()).toString().replace('\\', '/')
+        }.toSet()
+        if (actual != allowed) {
+            throw new GradleException("Native runtime inputs differ: missing=${allowed - actual}, unexpected=${actual - allowed}. Diagnostics belong in native/debug.")
+        }
+    }
+}
+tasks.named('preBuild').configure { dependsOn 'verifyRuntimeLibraries' }
+
+// Run the vendored phone-driver regression suite independently of legacy installer fixtures.
+if (providers.gradleProperty('codexPhoneTestsOnly').isPresent()) {
+    android.sourceSets.test.java.setSrcDirs(['src/test/java/com/ai/codex/phone'])
+}

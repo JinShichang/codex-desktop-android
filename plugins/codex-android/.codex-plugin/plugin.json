@@ -1,0 +1,19 @@
+{
+  "name": "codex-android",
+  "version": "0.3.0+phone.20261106",
+  "description": "Android 文件、传感器、设备查询和只读短信；手机屏幕操作由 phone MCP 提供。",
+  "author": {
+    "name": "Codex"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Android 设备工具",
+    "shortDescription": "设备查询、文件、传感器与只读短信。",
+    "longDescription": "Android 文件、传感器、设备查询和只读短信；手机屏幕操作由 phone MCP 提供。",
+    "developerName": "Codex",
+    "category": "Productivity",
+    "capabilities": [],
+    "defaultPrompt": "查看当前手机的设备能力与授权状态。"
+  },
+  "mcpServers": "./.mcp.json"
+}

@@ -1,0 +1,15 @@
+{
+  "schema": "codex.executor.package.v1",
+  "abi": "arm64-v8a",
+  "assets": [
+    "codex-executor-deployment.json",
+    "codex-executor-evidence.json",
+    "codex-executor-manifest.json",
+    "codex-executor-qualification.json"
+  ],
+  "deploymentInventory": "codex-executor-deployment.json",
+  "jniExcludedFromPackage": [
+    "libcodex_bionic_cwd.so",
+    "libcodex_shizuku_transport.so"
+  ]
+}

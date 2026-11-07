@@ -1,0 +1,4 @@
+-keep class com.ai.codex.shizukuexec.ExecutorService { public <init>(android.content.Context); *; }
+-keep class com.ai.codex.shizukuexec.NativeSpawn { *; }
+-keep class com.ai.codex.shizukuexec.AppNativeSpawn { *; }
+-keep class com.ai.codex.shizukuexec.ExecutorProvider { *; }

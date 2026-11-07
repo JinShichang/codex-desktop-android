@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="codex_accessibility_label">Codex Android 控制</string>
+    <string name="codex_accessibility_summary">在你提出请求时，允许 Codex 读取和操作当前 Android 窗口。</string>
+    <string name="codex_accessibility_description">此权限允许 Codex 在你向 Codex 提出请求时，读取屏幕文字、截取当前窗口，并执行点击、滚动和填写操作。为完成任务，相关截图和文字可能发送给模型。Android 标记为密码的字段会被隐藏。手机锁定时无法控制；Android 设置和权限仍由你掌握。此服务无法解锁手机，不提供 root 权限，也不会修改引导加载程序或 Knox。你随时可以在 Android 设置中关闭此权限。</string>
+</resources>

@@ -1,0 +1,23 @@
+buildscript {
+    repositories { google(); mavenCentral() }
+    dependencies { classpath 'com.android.tools.build:gradle:9.3.1' }
+}
+allprojects { repositories { google(); mavenCentral(); maven { url 'https://jitpack.io' } } }
+// Candidate builds select an inventoried X11 library explicitly. Its maintained
+// source remains in vendor/termux-x11; -PbuildX11FromSource enables the NDK build.
+subprojects { p ->
+    afterEvaluate {
+        if (p.hasProperty('android') && rootProject.hasProperty('codexBuildToolsVersion')) {
+            p.android.buildToolsVersion = rootProject.property('codexBuildToolsVersion')
+        }
+        if (p.name == 'stub') p.android.compileSdk = 37
+        if (p.name == 'lorie') {
+            p.android.compileSdk = 37
+            if (!rootProject.hasProperty('buildX11FromSource')) {
+                p.android.externalNativeBuild.cmake.path = null
+                p.android.sourceSets.main.jniLibs.srcDirs = [rootProject.file(
+                    providers.gradleProperty('codexX11Jni').getOrElse('native/x11'))]
+            }
+        }
+    }
+}

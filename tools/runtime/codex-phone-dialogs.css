@@ -1,0 +1,24 @@
+/* Native GTK file pickers use their own coordinates, independent of Electron zoom. */
+filechooser, filechooser *, .dialog-action-area * {
+    font-size: 18px;
+}
+filechooser treeview.view {
+    -GtkTreeView-vertical-separator: 24;
+    -GtkTreeView-horizontal-separator: 12;
+}
+filechooser row {
+    min-height: 40px;
+    padding: 6px;
+}
+filechooser button, .dialog-action-area button {
+    min-height: 40px;
+    padding: 8px 12px;
+}
+filechooser entry {
+    min-height: 36px;
+    padding: 6px;
+}
+filechooser scrollbar slider {
+    min-width: 16px;
+    min-height: 36px;
+}

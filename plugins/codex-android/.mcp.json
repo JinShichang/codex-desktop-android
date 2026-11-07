@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "codex_android": {
+      "command": "/usr/bin/python3",
+      "args": ["-I", "-B", "scripts/server.py"],
+      "cwd": "."
+    }
+  }
+}

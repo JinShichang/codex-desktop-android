@@ -1,0 +1,58 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.READ_SMS" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
+    <queries>
+        <intent><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent>
+        <intent><action android:name="android.intent.action.SENDTO" /><data android:scheme="smsto" /></intent>
+    </queries>
+    <uses-permission android:name="moe.shizuku.manager.permission.API_V23" />
+    <application android:label="@string/codex_name" android:icon="@drawable/codex_icon" android:roundIcon="@drawable/codex_icon" android:allowBackup="false" android:extractNativeLibs="true" tools:replace="android:label,android:icon,android:roundIcon">
+        <meta-data android:name="moe.shizuku.client.V3_SUPPORT" android:value="true" />
+        <!-- Binder provider stays in the main app process. :runtime explicitly
+             requests its Binder through the official multi-process SDK API. -->
+        <provider android:name="com.ai.codex.shizukuexec.ExecutorProvider"
+            android:process="${applicationId}" tools:node="merge" />
+        <activity android:name="com.termux.x11.MainActivity" tools:node="remove" />
+        <activity android:name="com.ai.codex.phone.PhoneSettingsActivity" android:exported="false" android:theme="@style/Theme.AppCompat.DayNight.NoActionBar" />
+        <receiver android:name="com.ai.codex.phone.PhoneStopReceiver" android:exported="false" />
+        <activity android:name="com.ai.codex.DeviceCapabilitiesActivity" android:exported="false" android:theme="@style/Theme.AppCompat.DayNight.NoActionBar" />
+        <activity android:name="com.ai.codex.CodexDeviceQuestionActivity" android:exported="false" android:theme="@style/Theme.AppCompat.DayNight.NoActionBar" />
+        <activity android:name="com.ai.codex.AndroidToolsActivity" android:exported="true" android:label="Codex Android 工具" android:theme="@style/Theme.AppCompat.DayNight.NoActionBar" />
+        <activity android:name="com.ai.codex.CodexAndroidPermissionActivity" android:exported="false" android:label="Codex Android 权限" android:theme="@style/Theme.AppCompat.DayNight.NoActionBar" />
+        <service android:name="com.ai.codex.phone.a11y.PhoneA11yService" android:exported="true" android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE" android:label="Codex Android 控制">
+            <intent-filter><action android:name="android.accessibilityservice.AccessibilityService" /></intent-filter>
+            <meta-data android:name="android.accessibilityservice" android:resource="@xml/phone_accessibility_service" />
+        </service>
+        <activity android:name="com.termux.x11.LoriePreferences" android:label="@string/lorie_pref_main" />
+        <service android:name="com.termux.x11.utils.KeyInterceptor" android:label="@string/codex_key_interceptor" tools:replace="android:label" />
+        <activity android:name="com.ai.codex.CodexActivity" android:exported="true" android:launchMode="singleTask" android:theme="@style/Theme.AppCompat.DayNight.NoActionBar"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|density|uiMode"
+            android:resizeableActivity="true" android:windowSoftInputMode="stateHidden|adjustNothing">
+            <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="codex" android:host="connector" android:path="/oauth_callback" />
+            </intent-filter>
+            <meta-data android:name="android.app.shortcuts" android:resource="@xml/codex_shortcuts" />
+        </activity>
+        <service android:name="com.termux.x11.CodexRuntimeService" android:process=":runtime" android:exported="false" android:foregroundServiceType="specialUse">
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" android:value="Local Linux desktop workspace and active user tasks" />
+        </service>
+    </application>
+</manifest>

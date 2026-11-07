@@ -1,0 +1,8 @@
+<resources>
+    <!-- OnePlus 13 / ordinary phones: no folding feature is required. Set true
+         only for builds that should hand off from a Fold's cover display. -->
+    <bool name="codex_require_inner_display">false</bool>
+    <!-- Electron UI scale, independent of Android's system density and X11's
+         framebuffer resolution. 150 means an Electron device scale of 1.5. -->
+    <integer name="codex_desktop_scale_percent">150</integer>
+</resources>

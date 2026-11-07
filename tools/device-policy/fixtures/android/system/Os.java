@@ -1,0 +1,1 @@
+package android.system; public class Os { public static void chmod(String path,int mode){} }

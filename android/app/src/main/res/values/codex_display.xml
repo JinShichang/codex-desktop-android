@@ -1,0 +1,31 @@
+<resources>
+    <string name="codex_settings_shortcut">Codex 设置</string>
+    <string name="codex_name" translatable="false">Codex</string>
+    <string name="lorie_app_name" translatable="false">Codex</string>
+    <string name="codex_display_channel">桌面显示</string>
+    <string name="codex_display_notification">桌面显示控制</string>
+    <string name="codex_display_help_title">Codex 桌面</string>
+    <string name="codex_display_help">此窗口用于在手机屏幕上显示桌面。如果一直显示“桌面未连接”，说明尚未连接到运行环境。\n\n“关闭桌面”仅关闭当前窗口。通知中的“停止”会关闭 Linux 环境及其中的任务。\n\n键盘、触控和显示选项位于“显示设置”。显示服务已集成在 Codex 中。</string>
+    <string name="not_connected">桌面未连接</string>
+    <string name="preferences_button_text">显示设置</string>
+    <string name="help_button_text">帮助</string>
+    <string name="exit_button_text">关闭桌面</string>
+    <string name="lorie_notification_content_text">桌面显示控制</string>
+    <string name="lorie_notification_open_preferences">设置</string>
+    <string name="lorie_notification_exit">关闭桌面</string>
+    <string name="lorie_notification_restart_activity">重新打开桌面</string>
+    <string name="lorie_notification_toggle_soft_keyboard">显示或隐藏键盘</string>
+    <string name="lorie_notification_toggle_additional_key_bar">附加按键栏</string>
+    <string name="lorie_notification_release_pointer_and_keyboard_capture">释放键盘和鼠标捕获</string>
+    <string name="lorie_notification_toggle_fullscreen">全屏模式</string>
+    <string name="lorie_pref_main">Codex 显示设置</string>
+    <string name="lorie_pref_output">显示</string>
+    <string name="lorie_pref_pointer">鼠标指针</string>
+    <string name="lorie_pref_kbd">键盘</string>
+    <string name="lorie_pref_other">其他设置</string>
+    <string name="lorie_pref_version">显示服务版本</string>
+    <string name="lorie_pref_ekbar">附加按键栏</string>
+    <string name="lorie_pref_userActions">手势与按键操作</string>
+    <string name="codex_key_interceptor">Codex 键盘快捷键</string>
+    <string name="extra_keys_config_desc">使用 JSON 数组配置附加按键栏。\n\nMETA：Meta 键\nKEYBOARD：显示或隐藏键盘\nPREFERENCES：打开设置\nMOUSE_HELPER：鼠标辅助按钮\nSTYLUS_HELPER：手写笔辅助按钮\nZOOM_IN、ZOOM_OUT、ZOOM_RESET：放大、缩小、重置缩放\nEXIT：关闭桌面窗口。\n\n示例：[[\"ESC\", \"TAB\", \"CTRL\", \"ALT\", \"KEYBOARD\"]]</string>
+</resources>
