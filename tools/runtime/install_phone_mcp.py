@@ -1,12 +1,15 @@
-"""Register APK-owned phone MCP with the official config editor; preserve other settings."""
+"""Register APK-owned Android MCP servers through the official config editor."""
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import tomllib
 from codex_phone_profile import write_official_config
 
-RELAY='/usr/local/share/codex/plugins/codex-android/scripts/phone_relay.py'
-SKILL='/usr/local/share/codex/plugins/codex-android/skills/phone/SKILL.md'
+SHARE=PurePosixPath('/usr/local/share/codex')
+PLUGIN=PurePosixPath('plugins/codex-android')
+DEVICE_SCRIPT=PLUGIN/'scripts/server.py'
+RELAY=str(SHARE/PLUGIN/'scripts/phone_relay.py')
+SKILL=str(SHARE/PLUGIN/'skills/phone/SKILL.md')
 SERVER={'command':'/usr/bin/python3','args':['-I','-B',RELAY],
         'startup_timeout_sec':15,'tool_timeout_sec':660,'enabled':True}
 
@@ -33,18 +36,34 @@ def prepare(env=None):
     home.mkdir(parents=True,exist_ok=True)
     path=home/'config.toml'
     before=tomllib.loads(path.read_text(encoding='utf-8')) if path.exists() else {}
-    server=server_for(env)
+    phone=server_for(env)
+    tools=env.get('CODEX_TOOLS_DIR')
+    native_share=(PurePosixPath(tools).parent/'debian'/SHARE.relative_to('/')) if tools else SHARE
+    device_share=SHARE
+    if phone['command'] != SERVER['command']:
+        device_share=native_share
+    device={**phone, 'args':['-I','-B',str(device_share/DEVICE_SCRIPT),
+                            str(device_share/'android-bridge.json')], 'tool_timeout_sec':165}
     servers=before.get('mcp_servers',{})
-    if servers.get('phone') != server:
-        write_official_config(None,env=env,edits=[{'keyPath':'mcp_servers.phone','value':server,'mergeStrategy':'replace'}])
+    expected_servers={**servers, 'phone':phone}
+    existing=servers.get('codex_android')
+    managed_scripts={str(share/DEVICE_SCRIPT) for share in (SHARE,native_share)}
+    if existing is None or any(path in managed_scripts for path in existing.get('args', [])):
+        if existing is not None and existing.get('enabled') is False:
+            device['enabled']=False
+        expected_servers['codex_android']=device
+    edits=[{'keyPath':'mcp_servers.'+name,'value':value,'mergeStrategy':'replace'}
+           for name,value in expected_servers.items() if servers.get(name) != value]
+    if edits:
+        write_official_config(None,env=env,edits=edits)
         after=tomllib.loads(path.read_text(encoding='utf-8'))
-        expected={**before,'mcp_servers':{**servers,'phone':server}}
-        if after != expected: raise RuntimeError('Phone MCP config write changed unrelated settings')
+        expected={**before,'mcp_servers':expected_servers}
+        if after != expected: raise RuntimeError('Android MCP config write changed unrelated settings')
     target=home/'skills/codex-phone/SKILL.md'
     contents=Path(SKILL).read_bytes()
     target.parent.mkdir(parents=True,exist_ok=True)
     if not target.exists() or target.read_bytes()!=contents:
         temp=target.with_suffix('.next');temp.write_bytes(contents);temp.replace(target)
-    return {'phoneMcp':'registered','skill':'installed'}
+    return {'phoneMcp':'registered','androidMcp':'registered','skill':'installed'}
 
 if __name__=='__main__': print(json.dumps(prepare()))

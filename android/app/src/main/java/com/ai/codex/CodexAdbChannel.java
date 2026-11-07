@@ -91,6 +91,7 @@ public final class CodexAdbChannel extends AbsAdbConnectionManager {
     }
     public static JSONObject execute(Context c,DeviceCommandPolicy.Plan input)throws Exception{
         CodexDeviceFeatures.require(c,"adb");DeviceCommandPolicy.Plan plan=DeviceCommandPolicy.inspect(input.argv);
+        DeviceCommandPolicy.requireChannel(plan, "adb");
         reconnect(c);CodexAdbChannel manager=get(c);if(!manager.isConnected())throw new DeviceCommandPolicy.Blocked("adb_not_connected");
         CodexDeviceCommands.requireInteractive(c);CodexDeviceCommands.validateStop(c,plan);
         StringBuilder command=new StringBuilder();for(String arg:plan.argv){if(command.length()>0)command.append(' ');command.append("'").append(arg).append("'");}

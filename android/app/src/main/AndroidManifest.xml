@@ -6,6 +6,9 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+    <uses-permission android:name="android.permission.DUMP" />
     <uses-permission android:name="android.permission.READ_SMS" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
@@ -21,6 +24,8 @@
     </queries>
     <uses-permission android:name="moe.shizuku.manager.permission.API_V23" />
     <application android:label="@string/codex_name" android:icon="@drawable/codex_icon" android:roundIcon="@drawable/codex_icon" android:allowBackup="false" android:extractNativeLibs="true" tools:replace="android:label,android:icon,android:roundIcon">
+        <provider android:name=".CodexApkProvider" android:authorities="${applicationId}.apk"
+            android:exported="false" android:grantUriPermissions="true" />
         <meta-data android:name="moe.shizuku.client.V3_SUPPORT" android:value="true" />
         <!-- Binder provider stays in the main app process. :runtime explicitly
              requests its Binder through the official multi-process SDK API. -->

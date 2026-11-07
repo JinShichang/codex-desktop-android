@@ -12,7 +12,7 @@ import java.util.concurrent.*;
 /** Loopback-only bridge. All device actions share the Unix/MCP execution boundary. */
 public final class CodexDeviceHttp {
     public interface Handler { JSONObject call(String op,JSONObject args) throws Exception; }
-    private static final String OPERATIONS="device_command sensor_list sensor_read location flashlight clipboard_read clipboard_write file_list file_read file_export interaction_notify interaction_toast interaction_vibrate interaction_ask interaction_answer interaction_share interaction_open status request_access sms_status sms_search sms_read";
+    private static final String OPERATIONS="device_command install_apk package_info sensor_list sensor_read location flashlight clipboard_read clipboard_write file_list file_read file_export interaction_notify interaction_toast interaction_vibrate interaction_ask interaction_answer interaction_share interaction_open status request_access sms_status sms_search sms_read";
     private static String token;
     private static boolean started;
     private CodexDeviceHttp(){}

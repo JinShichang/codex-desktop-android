@@ -12,7 +12,8 @@ import java.util.Set;
  * docs/device-command-policy.md. No shell program or transport override is accepted.
  */
 public final class DeviceCommandPolicy {
-    public static final String REVISION = "device-argv-v1";
+    public static final String REVISION = "device-argv-v5";
+    static final int FILE_COMMAND_TIMEOUT_SECONDS = 120;
     private DeviceCommandPolicy() {}
     public static final class Blocked extends IllegalArgumentException {
         Blocked(String reason) { super("[POLICY_BLOCKED] " + reason); }
@@ -24,6 +25,10 @@ public final class DeviceCommandPolicy {
             this.argv = Collections.unmodifiableList(new ArrayList<>(argv));
             this.stopPackage = stopPackage;
         }
+
+        boolean copiesFile() { return argv.get(0).equals("/system/bin/cp"); }
+        boolean installsApp() { return argv.get(0).equals("/system/bin/pm") && argv.get(1).equals("install"); }
+        boolean fileCommand() { return copiesFile() || installsApp(); }
     }
     private static Set<String> words(String input) {
         return new HashSet<>(Arrays.asList(input.split(" ")));
@@ -66,8 +71,26 @@ public final class DeviceCommandPolicy {
             case "df": allowed = tail.isEmpty() || tail.size() == 1 && oneOf(tail.get(0), "-h -k"); break;
             case "ps": allowed = tail.isEmpty() || tail.equals(Arrays.asList("-A")); break;
             case "pm":
+                if ((tail.size() == 2 || tail.size() == 3 && oneOf(tail.get(1), "-r -R"))
+                        && tail.get(0).equals("install")) {
+                    String apk = tail.get(tail.size() - 1);
+                    DeviceFilePolicy.requireSharedApk(apk);
+                    allowed = true;
+                    break;
+                }
                 allowed = tail.size() == 2 && ((oneOf(tail.get(0), "path dump") && packageName(tail.get(1)))
                     || tail.get(0).equals("list") && oneOf(tail.get(1), "packages features libraries users permissions"));
+                if ((tail.size() == 3 || tail.size() == 4)
+                        && tail.subList(0, 3).equals(List.of("list", "packages", "--show-versioncode"))) {
+                    allowed = tail.size() == 3 || packageName(tail.get(3));
+                }
+                break;
+            case "cp":
+                if (tail.size() == 2 || tail.size() == 3 && tail.get(0).equals("-f")) {
+                    String[] source = DeviceFilePolicy.sharedComponents(tail.get(tail.size() - 2));
+                    DeviceFilePolicy.sharedComponents(tail.get(tail.size() - 1));
+                    allowed = source.length > 0;
+                }
                 break;
             case "settings":
                 allowed = tail.size() == 2 && tail.get(0).equals("list") && oneOf(tail.get(1), "system secure global")
@@ -91,6 +114,11 @@ public final class DeviceCommandPolicy {
         require(allowed, "arguments_not_allowlisted");
         args.set(0, "/system/bin/" + name);
         return new Plan(args, stop);
+    }
+
+    static void requireChannel(Plan plan, String channel) {
+        if (plan.installsApp()) require("root".equals(channel), "app_install_requires_root_channel");
+        if (plan.copiesFile()) require(oneOf(channel, "app root"), "file_copy_requires_app_or_root_channel");
     }
 
     /** The unprivileged local entry cannot select a privileged identity. */

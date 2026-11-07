@@ -3,11 +3,13 @@ package com.ai.codex;
 import android.Manifest;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
+import android.content.ActivityNotFoundException;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.ContentValues;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.hardware.Sensor;
 import android.hardware.SensorEvent;
@@ -21,6 +23,7 @@ import android.net.Uri;
 import android.os.CancellationSignal;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.ParcelFileDescriptor;
 import android.os.SystemClock;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
@@ -76,6 +79,7 @@ public final class CodexDeviceFeatures {
         return new JSONObject().put("enabled", enabled).put("installationScoped", true).put("permissions",new JSONObject()
             .put("locationFine",permission(c,Manifest.permission.ACCESS_FINE_LOCATION)).put("locationCoarse",permission(c,Manifest.permission.ACCESS_COARSE_LOCATION))
             .put("camera",permission(c,Manifest.permission.CAMERA)).put("steps",permission(c,Manifest.permission.ACTIVITY_RECOGNITION))
+            .put("requestPackageInstalls",c.getPackageManager().canRequestPackageInstalls())
             .put("notifications",permission(c,Manifest.permission.POST_NOTIFICATIONS)).put("smsRead",permission(c,Manifest.permission.READ_SMS)))
             .put("foreground", CodexActivity.isVisible() || AndroidToolsActivity.isVisible());
     }
@@ -103,11 +107,20 @@ public final class CodexDeviceFeatures {
         }catch(Exception error){c.getContentResolver().delete(uri,null,null);throw error;}
     }
     public static boolean handles(String op) {
-        return op.startsWith("sensor_") || op.equals("location") || op.equals("flashlight")
+        return op.equals("install_apk") || op.equals("package_info") || op.startsWith("sensor_")
+            || op.equals("location") || op.equals("flashlight")
             || op.startsWith("clipboard_") || op.startsWith("file_") || op.startsWith("interaction_");
     }
     public static JSONObject execute(Context c, String op, JSONObject a) throws Exception {
         switch (op) {
+            case "install_apk": {
+                if (a.length() != 1) throw new IllegalArgumentException("invalid_arguments");
+                return installApk(c, text(a, "path", 4096));
+            }
+            case "package_info": {
+                if (a.length() != 1) throw new IllegalArgumentException("invalid_arguments");
+                return packageInfo(c, text(a, "packageName", 255));
+            }
             case "sensor_list": {
                 SensorManager sm = c.getSystemService(SensorManager.class); JSONArray list = new JSONArray();
                 for (Map.Entry<String,Integer> entry : SENSORS.entrySet()) {
@@ -194,6 +207,38 @@ public final class CodexDeviceFeatures {
             default:
                 if (op.startsWith("interaction_")) return interaction(c,op,a);
                 throw new IllegalArgumentException("unknown_operation");
+        }
+    }
+
+    private static JSONObject installApk(Context c, String path) throws Exception {
+        requireForeground();
+        try (ParcelFileDescriptor ignored = CodexDeviceSharedFiles.openApk(path)) {
+            // Check that the selected installer will be able to read the APK.
+        }
+        return onMain(() -> {
+            requireForeground();
+            CodexDeviceCommands.requireInteractive(c);
+            Intent intent = new Intent(Intent.ACTION_VIEW)
+                .setDataAndType(CodexApkProvider.uri(c, path), CodexApkProvider.MIME_TYPE)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            try {
+                c.startActivity(intent);
+            } catch (ActivityNotFoundException unavailable) {
+                return new JSONObject().put("ok", false).put("error", "apk_installer_unavailable");
+            }
+            return new JSONObject().put("ok", true).put("status", "installer_opened");
+        });
+    }
+
+    private static JSONObject packageInfo(Context c, String packageName) throws Exception {
+        if (!DeviceCommandPolicy.packageName(packageName)) throw new IllegalArgumentException("invalid_package_name");
+        JSONObject result = new JSONObject().put("ok", true).put("packageName", packageName);
+        try {
+            PackageInfo info = c.getPackageManager().getPackageInfo(packageName, 0);
+            return result.put("found", true).put("versionCode", info.getLongVersionCode())
+                .put("versionName", info.versionName == null ? JSONObject.NULL : info.versionName);
+        } catch (PackageManager.NameNotFoundException unavailable) {
+            return result.put("found", false).put("status", "package_not_found_or_hidden");
         }
     }
     private static JSONObject sensor(Context c, String name) throws Exception {

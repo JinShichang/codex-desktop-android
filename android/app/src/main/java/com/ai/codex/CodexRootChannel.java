@@ -26,19 +26,19 @@ public final class CodexRootChannel {
             throw new DeviceCommandPolicy.Blocked("root_entry_not_allowed");
         return "CLASSPATH='"+apk+"' /system/bin/app_process /system/bin "+main+" "+c.getApplicationInfo().uid;
     }
-    public static JSONObject execute(Context c,JSONObject request) throws Exception {
+    public static JSONObject execute(Context c,JSONObject request,boolean fileCommand) throws Exception {
         CodexDeviceFeatures.require(c,"root");
-        return invoke(c,request);
+        return invoke(c,request,fileCommand);
     }
     /** Only the native panel calls probe; no model method enables Root. */
     public static JSONObject probe(Context c) throws Exception {
-        return invoke(c,new JSONObject().put("argv",new org.json.JSONArray().put("id").put("-u")).put("channel","root"));
+        return invoke(c,new JSONObject().put("argv",new org.json.JSONArray().put("id").put("-u")).put("channel","root"),false);
     }
-    private static JSONObject invoke(Context c,JSONObject request) throws Exception {
+    private static JSONObject invoke(Context c,JSONObject request,boolean fileCommand) throws Exception {
         beginAuthorization();
-        try { return invokeOwned(c,request); } finally { endAuthorization(); }
+        try { return invokeOwned(c,request,fileCommand); } finally { endAuthorization(); }
     }
-    private static JSONObject invokeOwned(Context c,JSONObject request) throws Exception {
+    private static JSONObject invokeOwned(Context c,JSONObject request,boolean fileCommand) throws Exception {
         Process process=new ProcessBuilder(su(),"-c",entry(c,"com.ai.codex.CodexRootCommandMain")).redirectErrorStream(true).start();
         ByteArrayOutputStream bytes=new ByteArrayOutputStream();
         Thread reader=new Thread(()->{
@@ -54,7 +54,8 @@ public final class CodexRootChannel {
             byte[] data=(request.toString()+"\n").getBytes(StandardCharsets.UTF_8);
             if (data.length>32768) throw new DeviceCommandPolicy.Blocked("request_too_large");
             process.getOutputStream().write(data); process.getOutputStream().close();
-            if (!process.waitFor(30,TimeUnit.SECONDS))
+            if (!process.waitFor(fileCommand ? DeviceCommandPolicy.FILE_COMMAND_TIMEOUT_SECONDS + 20 : 30,TimeUnit.SECONDS)
+                    || fileCommand && process.exitValue() == 124)
                 return new JSONObject().put("ok",false).put("error","root_result_unknown").put("retrySafe",false);
             reader.join(1000);
             if (reader.isAlive()) throw new IllegalStateException("root_result_unknown");

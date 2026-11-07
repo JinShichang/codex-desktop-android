@@ -15,7 +15,7 @@ Codex Android 将 Linux ARM64 桌面客户端、本地命令执行和 Android �
 
 一加 13 配置允许直板机直接显示桌面，首次桌面缩放为 150%。客户端可以自行调整缩放，主窗口启动时请求 F11 全屏。关闭显示窗口和停止 Linux 会话是两个操作，显式停止由运行服务负责处理。 [设备配置](../android/app/src/main/res/values/codex_device_profile.xml) · [兼容性](compatibility.md)
 
-PRoot 使用 Android 的内核和应用 UID。应用私有 Debian 环境的 GNOME 密钥环与 Android Keystore 配合。共享存储需由用户授予 Android 的「所有文件访问」权限，项目可放在 `/sdcard/ChatGPT/Projects`，未授权时使用应用私有项目目录。 [Android 权限说明](device-command-policy.md)
+PRoot 使用 Android 的内核和应用 UID。应用私有 Debian 环境的 GNOME 密钥环与 Android Keystore 配合。共享存储需由用户授予 Android 的「所有文件访问」权限，默认共享项目目录是 `/sdcard/codex/Projects`。未授权时使用应用私有项目目录。 [Android 权限说明](device-command-policy.md)
 
 ## 执行边界
 

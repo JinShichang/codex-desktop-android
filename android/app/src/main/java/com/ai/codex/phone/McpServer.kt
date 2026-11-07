@@ -79,7 +79,15 @@ class McpServer(
 
     private fun initializeResult(requested: String?): Map<String, Any?> = linkedMapOf(
         "protocolVersion" to (requested?.takeIf { it in KNOWN_VERSIONS } ?: LATEST_VERSION),
-        "instructions" to "操作此 Android 手机用 phone 工具。先 status 查看可用性，再 screen 读屏。tap/type/scroll 使用最近屏幕号和元素编号，每个动作返回新屏幕；过期则重读，不猜坐标。看图用 screen(image:true)，tap_xy 使用该截图像素。长列表用 collect。闹钟、导航、日程优先 intent。Root 后台屏用 open(app,background:true) 后跟 screen(background:true)，b/s 屏幕号不可混用。确认或接管由用户实际处理；超时不要重复发送、付款或删除，先读屏核对。结束前 status 取 task.id，再 finish(taskId) 关闭悬浮条和后台屏。",
+        "instructions" to (
+            "仅在需要查看 Android 屏幕、打开或操作 Android 应用界面时使用 phone。" +
+                "项目文件、代码、构建和测试优先用常规命令与文件工具。安装 APK、查询设备等有设备命令的操作用 Android 设备工具。普通安装用 android_install_apk 打开手机的默认安装器。" +
+                "命令失败时先检查报错和权限，具体步骤确实依赖界面时才用 phone。" +
+                "先 status 查看可用性，再 screen 读屏。tap/type/scroll 使用最新屏幕号和元素编号，过期时重新读屏。" +
+                "看图用 screen(image:true)，tap_xy 使用该截图像素。长列表用 collect。闹钟、导航、日程优先 intent。" +
+                "用户明确要求后台屏时用 open(app,background:true) 和 screen(background:true)，区分 b/s 屏幕号。" +
+                "确认或接管由用户处理。发送、付款或删除超时后先读屏核对。结束前 status 取 task.id，再 finish(taskId) 关闭悬浮条和后台屏。"
+            ),
         "capabilities" to mapOf("tools" to mapOf("listChanged" to false)),
         "serverInfo" to linkedMapOf("name" to "dsh-app-phone", "version" to serverVersion),
     )

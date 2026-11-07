@@ -17,6 +17,27 @@ public final class DeviceFilePolicy {
                 throw new DeviceCommandPolicy.Blocked("credential_path_denied");
         }
     }
+    static String[] sharedComponents(String path) {
+        if (path == null || path.length() > 4096 || path.indexOf(0) >= 0)
+            throw new DeviceCommandPolicy.Blocked("invalid_file_path");
+        for (String root : new String[]{"/sdcard", "/storage/emulated/0"}) {
+            if (path.equals(root) || path.equals(root + "/")) return new String[0];
+            if (!path.startsWith(root + "/")) continue;
+            String relative = path.substring(root.length() + 1);
+            if (relative.endsWith("/")) relative = relative.substring(0, relative.length() - 1);
+            String[] parts = relative.split("/", -1);
+            for (String part : parts) {
+                if (part.isEmpty() || part.equals(".") || part.equals(".."))
+                    throw new DeviceCommandPolicy.Blocked("invalid_file_path");
+            }
+            return parts;
+        }
+        throw new DeviceCommandPolicy.Blocked("file_outside_shared_storage");
+    }
+    static void requireSharedApk(String path) {
+        if (sharedComponents(path).length == 0 || !path.toLowerCase(Locale.ROOT).endsWith(".apk"))
+            throw new DeviceCommandPolicy.Blocked("apk_file_required");
+    }
     public static File readable(File candidate, File privateProjects, File sharedRoot) throws Exception {
         checkComponents(candidate.getPath());
         File actual = candidate.getCanonicalFile();

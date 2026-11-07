@@ -24,14 +24,17 @@ public final class DeviceCapabilitiesActivity extends androidx.appcompat.app.App
         content=new LinearLayout(this);content.setOrientation(LinearLayout.VERTICAL);int pad=(int)(20*getResources().getDisplayMetrics().density);content.setPadding(pad,pad,pad,pad);scroll.addView(content);setContentView(scroll);
         text("设备能力授权",25);text("默认关闭，逐项授权。授权仅属于本次安装，可随时撤销。读取的屏幕、位置、文件和短信可能随对话发送给模型。",16);
         text("Root 模式（KernelSU / APatch）",21);
-        text("Root 设备命令固定经过白名单。分区、格式化、SELinux、系统属性写入、脚本和未知命令直接拒绝。",16);
+        text("在 KernelSU 或 APatch 授权 Codex 后，点下方按钮验证设备命令。后台屏单独开启。Root 设备命令仍受白名单限制。",16);
         button(CodexDeviceFeatures.enabled(this,"root")?"撤销 Root 通道":"授权并验证 Root 通道",()->{
             if(CodexDeviceFeatures.enabled(this,"root")){set("root",false);render();return;}
             android.widget.Toast.makeText(this,"请在 Root 管理器弹窗中授权 Codex",android.widget.Toast.LENGTH_LONG).show();
             new Thread(()->{String message;
                 try{JSONObject result=CodexRootChannel.probe(this);
                     boolean ok=result.optBoolean("ok")&&result.optInt("androidUid",-1)==0&&result.optString("output").trim().equals("0");
-                    set("root",ok);message=ok?"Root 验证成功":"Root 验证失败："+result.optString("error","未取得 UID 0");
+                    set("root",ok);
+                    String stage=result.optString("stage");
+                    String detail=stage.isEmpty()?"":"（"+stage+" / "+result.optString("failureClass","未知异常")+"）";
+                    message=ok?"Root 验证成功":"Root 验证失败："+result.optString("error","未取得 UID 0")+detail;
                 }catch(Exception failure){message="Root 未授权或入口不可用";}
                 String shown=message;runOnUiThread(()->{android.widget.Toast.makeText(this,shown,android.widget.Toast.LENGTH_LONG).show();render();});
             },"Root-user-authorization").start();

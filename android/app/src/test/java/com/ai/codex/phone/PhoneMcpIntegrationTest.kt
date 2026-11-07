@@ -13,6 +13,9 @@ class PhoneMcpIntegrationTest {
         val server=McpServer(PhoneToolCatalog.listJson()+PhoneHost.extraTools(), {name,_->ToolOutput(name)})
         val init=reply(server,1,"initialize",mapOf("protocolVersion" to "2025-11-25"))["result"] as Map<*, *>
         val instructions=init["instructions"] as String
+        assertTrue(instructions.startsWith("仅在需要查看 Android 屏幕"))
+        assertTrue(instructions.contains("项目文件、代码、构建和测试优先用常规命令与文件工具"))
+        assertTrue(instructions.contains("有设备命令的操作用 Android 设备工具"))
         assertTrue(instructions.contains("先 status"))
         assertTrue(instructions.contains("background:true"))
         assertTrue(instructions.contains("finish(taskId)"))
