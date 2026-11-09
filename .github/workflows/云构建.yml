@@ -1,0 +1,74 @@
+name: Codex 云构建准备检查
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    steps:
+      - name: 下载仓库源码
+        uses: actions/checkout@v4
+
+      - name: 配置 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 检查构建所需文件
+        shell: bash
+        run: |
+          mkdir -p work/cloud-report
+          python - <<'PY'
+          import json
+          import pathlib
+          import sys
+
+          root = pathlib.Path.cwd()
+          required = [
+              "tools/runtime/build-production-candidate.py",
+              "android/app/build.gradle",
+          ]
+          libraries = [
+              "libproot.so",
+              "libproot-loader.so",
+              "libproot-loader32.so",
+              "libtalloc.so",
+              "libandroid-shmem.so",
+          ]
+          missing_source = [
+              p for p in required if not (root / p).is_file()
+          ]
+          missing_libraries = [
+              name for name in libraries
+              if not (
+                  root / "android/native/runtime/arm64-v8a" / name
+              ).is_file()
+          ]
+          report = {
+              "源码文件缺失": missing_source,
+              "运行时原生库缺失": missing_libraries,
+              "已生成APK": False,
+              "说明": "本次仅检查依赖，不编译APK。执行器、X11等输入还需另行准备。",
+          }
+          text = json.dumps(report, ensure_ascii=False, indent=2)
+          pathlib.Path("work/cloud-report/依赖检查.json").write_text(
+              text, encoding="utf-8"
+          )
+          print(text)
+          if missing_source:
+              sys.exit("缺少项目源码，请确认工作流放在正确的仓库中")
+          PY
+
+      - name: 上传检查报告
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Codex-cloud-report
+          path: work/cloud-report/
+          if-no-files-found: warn
