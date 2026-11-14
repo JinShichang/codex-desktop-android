@@ -1,4 +1,6 @@
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:drawable="@android:color/black" />
-    <item android:drawable="@drawable/codex_launcher_foreground" />
+    <item><shape><solid android:color="#000000" /><size android:width="108dp" android:height="108dp" /></shape></item>
+    <item android:left="22dp" android:top="22dp" android:right="22dp" android:bottom="22dp">
+        <bitmap android:src="@drawable/chatgpt_desktop_mark" android:gravity="fill" android:filter="true" />
+    </item>
 </layer-list>

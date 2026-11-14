@@ -1,4 +1,4 @@
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
     <background android:drawable="@android:color/black" />
-    <foreground android:drawable="@drawable/codex_launcher_foreground" />
+    <foreground><inset android:drawable="@drawable/chatgpt_desktop_mark" android:inset="22dp" /></foreground>
 </adaptive-icon>
