@@ -1,0 +1,35 @@
+name: 原生运行时云构建
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: 下载并校验 NDK r29
+        shell: bash
+        run: |
+          mkdir -p work/toolchains
+          curl -fL --retry 3 https://dl.google.com/android/repository/android-ndk-r29-linux.zip -o work/toolchains/ndk.zip
+          echo '4abbbcdc842f3d4879206e9695d52709603e52dd68d3c1fff04b3b5e7a308ecf  work/toolchains/ndk.zip' | sha256sum -c -
+          unzip -q work/toolchains/ndk.zip -d work/toolchains
+      - name: 构建五个运行时库并验证 ELF
+        shell: bash
+        run: |
+          mkdir -p work/cloud-native
+          export ANDROID_NDK_HOME="$GITHUB_WORKSPACE/work/toolchains/android-ndk-r29"
+          export CODEX_NDK_ARCHIVE="$GITHUB_WORKSPACE/work/toolchains/ndk.zip"
+          bash tools/install/native/build-native.sh 2>&1 | tee work/cloud-native/原生构建日志.txt
+      - name: 保留原生库及源码许可证构建证据
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Codex-native-runtime
+          path: |
+            downloads/install/native/
+            work/cloud-native/
+          retention-days: 7
+          if-no-files-found: warn
