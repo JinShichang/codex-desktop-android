@@ -135,8 +135,8 @@
     {
       "path": "tools/executor/bionic-supervisor/processes.py",
       "source": "tools/executor/bionic-supervisor/processes.py",
-      "bytes": 19098,
-      "sha256": "e2e96777d1cb189d0256a4c24d0cd274350322d8b2852417535c3113bd0ee1f8"
+      "bytes": 20953,
+      "sha256": "e17370538ac26883770b5fbf40f6feb381090dc4dd89a15a93f5d4ba94f8a579"
     },
     {
       "path": "tools/executor/bionic-supervisor/runtime_paths.py",
@@ -303,8 +303,8 @@
     {
       "path": "tools/policy/managed_policy.py",
       "source": "tools/policy/managed_policy.py",
-      "bytes": 17855,
-      "sha256": "3442491adc9fe9b45391cefb0ad7a3b53e54dd9c1f4dc98e5eaef6ebde680eff"
+      "bytes": 20045,
+      "sha256": "b842c9f8716b2560a6653d4d52a80e86ee4e91011ff74d0506cca44681d27756"
     }
   ]
 }

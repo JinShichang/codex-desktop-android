@@ -35,12 +35,14 @@ class PhoneSettingsActivity : AppCompatActivity() {
         text("无障碍：" + if(control.a11yEnabledInSettings()) "已开启" else "未开启")
         button("打开无障碍设置") { startActivity(control.accessibilitySettingsIntent()) }
         button("允许通知 / 管理应用权限") { startActivity(control.appDetailsIntent()) }
-        if (android.os.Build.VERSION.SDK_INT >= 36) {
-            val liveSettings = android.content.Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_PROMOTION_SETTINGS)
-                .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, packageName)
-            if (liveSettings.resolveActivity(packageManager) != null)
-                button("灵动岛 / 实时活动设置") { startActivity(liveSettings) }
+        val liveStatus = when {
+            !com.ai.codex.LiveNotifications.notificationsEnabled(this) -> "通知未允许"
+            android.os.Build.VERSION.SDK_INT < 36 -> "系统不支持，使用普通通知"
+            com.ai.codex.LiveNotifications.canPromote(this) -> "已允许"
+            else -> "未允许，使用普通通知"
         }
+        text("原生实时通知：$liveStatus")
+        button("灵动岛 / 超级岛 / 实时通知设置") { startActivity(com.ai.codex.LiveNotifications.settingsIntent(this)) }
         val overlay = OverlayPrefs.read(this)
         toggle("闲置时将控制悬浮条收成小球", overlay.autoFold) { enabled ->
             OverlayPrefs.write(this, mapOf("autoCollapse" to enabled))

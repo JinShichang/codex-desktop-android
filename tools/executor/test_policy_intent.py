@@ -57,6 +57,20 @@ class PolicyIntentTests(unittest.TestCase):
         with self.assertRaises(FrozenInstanceError):
             intent.method = "process/spawn"
 
+    def test_optional_metadata_protection_survives_handoff_and_changes_digest(self):
+        original = context()
+        original["permissions"]["file_system"]["entries"].append({
+            "path": {"type": "special", "value": {"kind": "project_roots", "subpath": ".codex"}},
+            "access": "read", "missing_path_behavior": "skip"})
+        intent = prepare(original)
+        restored = parse_context(intent.context_json)
+        self.assertEqual(restored.to_context_dict()["permissions"]["file_system"]["entries"][-1],
+                         original["permissions"]["file_system"]["entries"][-1])
+        self.assertFalse(restored.decide("/workspace/.codex/config").can_write)
+        self.assertFalse(restored.decide("/workspace/private/secret").can_read)
+        del original["permissions"]["file_system"]["entries"][-1]["missing_path_behavior"]
+        self.assertNotEqual(intent.context_sha256, prepare(original).context_sha256)
+
     def test_inactive_windows_desktop_preference_survives_native_handoff(self):
         baseline = parse_context(context())
         for value in (False, True):

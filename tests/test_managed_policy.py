@@ -115,6 +115,112 @@ class ResolverVectorsTests(unittest.TestCase):
         self.assertEqual(normalized[1]["access"], "deny")
 
 
+class MissingPathBehaviorTests(unittest.TestCase):
+    @staticmethod
+    def skip(entry):
+        return {**entry, "missing_path_behavior": "skip"}
+
+    def test_engine_0171_workspace_context_is_accepted(self):
+        value = context([special("root", "read"), special("project_roots", "write"),
+                         special("tmpdir", "write"), special("slash_tmp", "write"),
+                         *[self.skip(special("project_roots", "read", subpath=name))
+                           for name in (".git", ".agents", ".codex")]])
+        value["windowsSandboxPrivateDesktop"] = True
+        value["windowsSandboxProxySettingsMode"] = "reconcile"
+        policy = parse_context(value)
+        for root in ("/workspace", "/second"):
+            self.assertTrue(policy.decide(root + "/value.txt").can_write)
+            for name in (".git", ".agents", ".codex"):
+                for suffix in ("", "/config"):
+                    decision = policy.decide(root + "/" + name + suffix)
+                    self.assertTrue(decision.can_read)
+                    self.assertFalse(decision.can_write)
+        self.assertTrue(policy.decide("/tmp/work").can_write)
+
+    def test_literal_metadata_skip_and_legacy_special_alias_are_supported(self):
+        entries = [literal("file:///workspace", "write")]
+        for name in (".git", ".agents", ".codex"):
+            entries.append(self.skip(literal("file:///workspace/" + name, "read")))
+        entries.append(self.skip(special("current_working_directory", "read", subpath="./.codex//")))
+        policy = parse_context(context(entries))
+        self.assertTrue(policy.decide("/workspace/value").can_write)
+        self.assertFalse(policy.decide("/workspace/.codex/config").can_write)
+
+    def test_skip_survives_normalization_and_input_mutation(self):
+        value = context([special("project_roots", "write"),
+                         self.skip(special("project_roots", "read", subpath=".git"))])
+        policy = parse_context(value)
+        normalized = policy.to_context_dict()
+        self.assertEqual(normalized["permissions"]["file_system"]["entries"][1]["missing_path_behavior"], "skip")
+        self.assertEqual(parse_context(json.dumps(normalized)).to_context_dict(), normalized)
+        value["permissions"]["file_system"]["entries"].clear()
+        normalized["permissions"]["file_system"]["entries"].clear()
+        self.assertFalse(policy.decide("/workspace/.git/config").can_write)
+
+    def test_skip_cannot_replace_a_broader_or_equal_deny(self):
+        for access in ("deny", "none"):
+            for denied in ("file:///workspace", "file:///workspace/.git"):
+                entries = [literal("file:///", "read"), literal("file:///workspace", "write"),
+                           literal(denied, access), self.skip(literal("file:///workspace/.git", "read"))]
+                for order in itertools.permutations(entries):
+                    with self.subTest(access=access, denied=denied, order=order):
+                        decision = parse_context(context(list(order))).decide("/workspace/.git/config")
+                        self.assertEqual(decision.access, Access.DENY)
+                        self.assertFalse(decision.can_read)
+
+    def test_skip_does_not_grant_read_access_without_an_existing_grant(self):
+        entries = [self.skip(special("project_roots", "read", subpath=".git"))]
+        policy = parse_context(context(entries))
+        self.assertFalse(policy.decide("/workspace/.git/config").can_read)
+
+    def test_explicit_narrower_metadata_write_still_requires_no_equal_deny(self):
+        entries = [literal("file:///workspace", "write"),
+                   self.skip(literal("file:///workspace/.git", "read")),
+                   literal("file:///workspace/.git/allowed", "write")]
+        policy = parse_context(context(entries))
+        self.assertTrue(policy.decide("/workspace/.git/allowed").can_write)
+        self.assertFalse(policy.decide("/workspace/.git/config").can_write)
+        entries.append(literal("file:///workspace/.git/allowed", "deny"))
+        self.assertFalse(parse_context(context(entries)).decide("/workspace/.git/allowed").can_read)
+
+    def test_skip_does_not_override_an_explicit_write_at_the_same_path(self):
+        entries = [literal("file:///workspace", "write"),
+                   self.skip(literal("file:///workspace/.git", "read")),
+                   literal("file:///workspace/.git", "write")]
+        self.assertTrue(parse_context(context(entries)).decide("/workspace/.git/config").can_write)
+
+    def test_skip_rejects_unknown_values_and_non_read_access(self):
+        for behavior in ("ignore", "Skip", "", True, 0, [], {}):
+            entry = literal("file:///workspace/.git", "read")
+            entry["missing_path_behavior"] = behavior
+            with self.subTest(behavior=behavior), self.assertRaises(PolicyError):
+                parse_context(context([entry]))
+        for access in ("write", "deny", "none"):
+            entry = self.skip(literal("file:///workspace/.git", access))
+            with self.subTest(access=access), self.assertRaises(PolicyError):
+                parse_context(context([entry]))
+
+    def test_skip_rejects_arbitrary_literal_and_special_paths(self):
+        entries = [literal("file:///workspace/.git/config", "read"),
+                   literal("file:///workspace/.git-other", "read"),
+                   literal("file:///workspace/data", "read"), literal("file:///", "read"),
+                   special("root", "read"), special("tmpdir", "read"),
+                   special("slash_tmp", "read"), special("project_roots", "read"),
+                   special("project_roots", "read", subpath="src/.git"),
+                   special("project_roots", "read", subpath=".git/config")]
+        for entry in entries:
+            with self.subTest(entry=entry), self.assertRaises(PolicyError):
+                parse_context(context([self.skip(entry)]))
+
+    def test_skip_is_lexical_and_protects_paths_even_when_absent(self):
+        with patch("builtins.open", side_effect=AssertionError("no file lookup")), \
+             patch("os.stat", side_effect=AssertionError("no host metadata")):
+            policy = parse_context(context([special("project_roots", "write"),
+                self.skip(special("project_roots", "read", subpath=".codex"))]))
+            self.assertFalse(policy.decide("/workspace/.codex/new").can_write)
+            self.assertTrue(policy.decide("/workspace/.codexignore").can_write)
+
+
 class PathSemanticsTests(unittest.TestCase):
     def test_equivalent_percent_spelling_and_component_boundaries(self):
         policy = parse_context(context([

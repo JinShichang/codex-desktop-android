@@ -154,6 +154,16 @@ subprocess.run([sys.executable,'-B','calculator.pyz'],check=True)
         self.assertEqual((outside / "after").read_text(), "42")
         self.assertFalse((outside / "before").exists())
 
+    async def test_pwd_uses_native_cwd_instead_of_stale_proot_environment(self):
+        directory = self.workspace / "actual-project"
+        directory.mkdir()
+        record = await self.start(["bash", "--noprofile", "--norc", "-c",
+            'pwd -P; printf "%s\\n" "$PWD"'], cwd=directory.as_uri(),
+            env={"PWD": "/obsolete/proot/cwd"})
+        result = await self.complete(record)
+        self.assertEqual(result["exitCode"], 0)
+        self.assertEqual(self.output(result), (str(directory) + "\n").encode() * 2)
+
     async def test_04_environment_policy_and_argv0(self):
         policy = {"inherit": "all", "ignoreDefaultExcludes": False, "exclude": ["USER"],
                   "set": {"POLICY": "resolved"}, "includeOnly": []}

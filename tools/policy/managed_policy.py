@@ -1,9 +1,11 @@
-"""Pure, bounded Codex 0.153.4 filesystem policy resolver; never a sandbox.
+"""Pure, bounded Codex filesystem policy resolver; never a sandbox.
 
 Source: rust-v0.153.4 / 042fb41b7c813ac7999105e886b2b7aa715b5081:
   file-system/src/lib.rs:174-210,237-291,330-348 (portable context)
   protocol/src/permissions.rs:926-1001,1782-1823 (access and metadata)
   utils/path-uri/src/lib.rs:324-385,773-807 (POSIX containment)
+Compatibility: rust-v0.171.0 / ccf9be8cc458bd6b8336fe84d68d8893f2691a5e,
+  protocol/src/permissions.rs:192-235,2594-2597 (optional metadata rules).
 
 This module neither reads the host filesystem nor opens files on the Fold.
 Decisions are lexical and are NOT authorization to perform a native operation.
@@ -14,7 +16,9 @@ Accepted inputs have exact semantics for this subset of the upstream resolver:
 managed/restricted/restricted-network; UTF-8 POSIX file URIs; literal paths and
 root/project_roots/tmpdir/slash_tmp special paths. Project subpaths must be
 relative and contain no '..'. Ordinary URI/native paths must contain no dot
-segments. Globs, missing-path behavior, platform defaults, full-disk special
+segments. Read-only metadata entries may retain missing_path_behavior=skip;
+they restrict an existing grant and remain protected even when absent. Globs,
+other missing-path behavior, platform defaults, full-disk special
 root-write mode, foreign/opaque paths, other enforcement modes, and unknown
 fields fail explicitly. See README.md for the distinction from runtime policy.
 """
@@ -170,6 +174,7 @@ class Entry:
     path: GuestPath | None = None
     special: str | None = None
     subpath: tuple[str, ...] | None = None
+    missing_path_behavior: str | None = None
 
     def to_dict(self):
         if self.kind == "path":
@@ -179,7 +184,10 @@ class Entry:
             if self.subpath is not None:
                 value["subpath"] = "/".join(self.subpath)
             path = {"type": "special", "value": value}
-        return {"path": path, "access": self.access.value}
+        result = {"path": path, "access": self.access.value}
+        if self.missing_path_behavior is not None:
+            result["missing_path_behavior"] = self.missing_path_behavior
+        return result
 
 
 @dataclass(frozen=True)
@@ -187,6 +195,7 @@ class ResolvedEntry:
     path: GuestPath
     access: Access
     source_index: int
+    missing_path_behavior: str | None = None
 
 
 @dataclass(frozen=True)
@@ -234,6 +243,14 @@ class ManagedPolicy:
         candidates = [entry for entry in self.resolved_entries if entry.path.contains(path)]
         winner = max(candidates, key=lambda entry: (len(entry.path.parts), _PRECEDENCE[entry.access]), default=None)
         access = winner.access if winner else Access.DENY
+        if winner is not None and winner.missing_path_behavior == "skip":
+            # Optional metadata carveouts may only narrow existing authority.
+            # A deeper read-only default must not expose an explicitly denied
+            # ancestor or grant reads when no ordinary rule admits this path.
+            ordinary = max((entry for entry in candidates if entry.missing_path_behavior is None),
+                           key=lambda entry: (len(entry.path.parts), _PRECEDENCE[entry.access]), default=None)
+            if ordinary is None or ordinary.access == Access.DENY:
+                access = Access.DENY
         metadata = None
         if access == Access.WRITE:
             # Preserve source ordering here: upstream metadata_write_denial uses
@@ -280,10 +297,24 @@ class ManagedPolicy:
         return result
 
 
+def _optional_metadata_entry(entry, behavior, field):
+    if behavior is None:
+        return entry
+    metadata_path = (entry.kind == "path" and entry.path.parts and entry.path.parts[-1] in METADATA_NAMES)
+    metadata_special = (entry.kind == "special" and entry.special == "project_roots"
+                        and entry.subpath in tuple((name,) for name in METADATA_NAMES))
+    if entry.access != Access.READ or not (metadata_path or metadata_special):
+        raise PolicyError(field, "skip is supported only for read-only .git, .agents or .codex protections")
+    return entry
+
+
 def _entry(value, index):
     field = f"$.permissions.file_system.entries[{index}]"
     value = _object(value, field, {"path", "access", "missing_path_behavior"}, ("path", "access"))
-    _only_null(value.get("missing_path_behavior"), field + ".missing_path_behavior")
+    behavior = value.get("missing_path_behavior")
+    behavior_field = field + ".missing_path_behavior"
+    if behavior is not None and (type(behavior) is not str or behavior != "skip"):
+        raise PolicyError(behavior_field, "expected null or the supported skip metadata behavior")
     access_text = value["access"]
     if type(access_text) is not str or access_text not in ("read", "write", "deny", "none"):
         raise PolicyError(field + ".access", "expected read, write, deny or the upstream none alias")
@@ -291,7 +322,9 @@ def _entry(value, index):
     path = _object(value["path"], field + ".path", {"type", "path", "value", "pattern"}, ("type",))
     if path["type"] == "path":
         _object(path, field + ".path", {"type", "path"}, ("path",))
-        return Entry(access, "path", path=GuestPath.from_uri(path["path"], field + ".path.path"))
+        entry = Entry(access, "path", path=GuestPath.from_uri(path["path"], field + ".path.path"),
+                      missing_path_behavior=behavior)
+        return _optional_metadata_entry(entry, behavior, behavior_field)
     if path["type"] != "special":
         raise PolicyError(field + ".path.type", "only literal and supported special paths are accepted; globs are unsupported")
     _object(path, field + ".path", {"type", "value"}, ("value",))
@@ -313,7 +346,8 @@ def _entry(value, index):
         # Upstream join treats subpath as native text: '%' is a literal byte,
         # not another round of URI decoding; empty and '.' components disappear.
         subpath = tuple(part for part in raw.split("/") if part not in ("", "."))
-    return Entry(access, "special", special=kind, subpath=subpath)
+    entry = Entry(access, "special", special=kind, subpath=subpath, missing_path_behavior=behavior)
+    return _optional_metadata_entry(entry, behavior, behavior_field)
 
 
 def _decode_json(document):
@@ -396,5 +430,5 @@ def parse_context(document):
             targets = temps or ()
         else:  # The parser permits exactly one remaining special: slash_tmp.
             targets = (GuestPath(("tmp",)),)
-        resolved.extend(ResolvedEntry(path, entry.access, index) for path in targets)
+        resolved.extend(ResolvedEntry(path, entry.access, index, entry.missing_path_behavior) for path in targets)
     return ManagedPolicy(cwd, roots, home, temps, entries, tuple(resolved), private_desktop, proxy_mode)

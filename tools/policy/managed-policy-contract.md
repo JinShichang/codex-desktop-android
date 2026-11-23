@@ -45,7 +45,11 @@ That bounded milestone does not qualify as a fully functional public release.
 The first compiler may support only managed/restricted profiles with explicit
 POSIX file URIs, `root`, `project_roots`, `tmpdir`, and `slash_tmp`, plus the
 metadata semantics above. Require an explicit native cwd in this initial API.
-Reject globs, `minimal`, unknown special tokens, missing-path options, shell
+Accept `missing_path_behavior=skip` only on read-only `.git`, `.agents`, or
+`.codex` metadata entries, retain it through the immutable handoff, and preserve
+the protection even while absent. Optional defaults must never grant reads
+over an existing deny or an unmatched path. Reject other missing-path options.
+Reject globs, `minimal`, unknown special tokens, shell
 snapshots, or other unimplemented inputs as a whole request, with their exact
 field named. This is an explicit initial compatibility limit, not a claim that
 the official protocol itself rejects those inputs. In particular, the official

@@ -428,6 +428,40 @@ print('exact thread directory entries')
         self.assertEqual(result["exitCode"], 0, result)
         self.assertEqual(self.output(result), b"exact thread directory entries\n")
 
+    async def test_21_optional_metadata_skip_runs_pwd_and_preserves_file_policy(self):
+        (self.workspace / ".agents").mkdir()
+        (self.workspace / "private/.git").mkdir()
+        (self.workspace / "private/.git/config").write_text("denied metadata")
+        context = kernel.context(self.workspace)
+        entries = context["permissions"]["file_system"]["entries"]
+        entries.extend({
+            "path": {"type": "special", "value": {"kind": "project_roots", "subpath": name}},
+            "access": "read", "missing_path_behavior": "skip"}
+            for name in (".git", ".agents", ".codex"))
+        entries.append({"path": {"type": "path", "path": (self.workspace / "private/.git").as_uri()},
+                        "access": "read", "missing_path_behavior": "skip"})
+        program = """import errno,os
+with open('ordinary','w') as stream: stream.write('authorized')
+with open('ordinary') as stream: assert stream.read()=='authorized'
+for path,mode in [('.git/config','w'),('.agents/config','w'),('private/secret','r'),('private/.git/config','r')]:
+    try: open(path,mode)
+    except OSError as error: assert error.errno==errno.EACCES,(path,error)
+    else: raise AssertionError('Protected operation allowed: '+path)
+try: os.mkdir('.codex')
+except OSError as error: assert error.errno==errno.EACCES,error
+else: raise AssertionError('Missing metadata path became writable')
+print('policy preserved')
+"""
+        record = await self.start("pwd; exec /usr/bin/python3 -I -B -c " + shlex.quote(program), sandbox=context)
+        result = await self.complete(record)
+        self.assertEqual(result["exitCode"], 0, result)
+        self.assertEqual(self.output(result), (str(self.workspace) + "\npolicy preserved\n").encode())
+        self.assertEqual((self.workspace / "ordinary").read_text(), "authorized")
+        self.assertEqual((self.workspace / "private/.git/config").read_text(), "denied metadata")
+        self.assertFalse((self.workspace / ".git/config").exists())
+        self.assertFalse((self.workspace / ".agents/config").exists())
+        self.assertFalse((self.workspace / ".codex").exists())
+
     @unittest.skipUnless(BUILD and (BUILD / "runner-after-final-stop").is_file(), "Host fault-injection supervisor absent")
     async def test_18_final_record_without_owner_wait_keeps_quarantine(self):
         await self.backend.close("test")

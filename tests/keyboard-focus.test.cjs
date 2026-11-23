@@ -18,6 +18,11 @@ const fixture = `
   <input id="checkbox" type="checkbox">
   <div aria-readonly="true" role="textbox"><div contenteditable="true" id="aria-readonly">locked</div></div>
   <div role="textbox" id="role-only">read-only presentation</div>
+  <div class="xterm" id="terminal" style="position:relative">
+    <div class="xterm-screen" id="terminal-screen" style="height:50px">codex@localhost:~$</div>
+    <textarea class="xterm-helper-textarea" id="terminal-input" style="position:absolute;width:1px;height:1px;opacity:0;pointer-events:none"></textarea>
+    <div class="scrollbar" id="terminal-scrollbar">Scroll</div>
+  </div>
   <div inert><input id="inert-input"></div>
   <div id="shadow-host"></div>
   <button id="outside">Outside</button>
@@ -66,6 +71,24 @@ const fixture = `
     await page.locator('#shadow-input').tap({force: true});
     assert.equal(signals.at(-1).visible, false, 'inert crosses the shadow host');
     await page.locator('#shadow-host').evaluate(node => node.removeAttribute('inert'));
+
+    signals.length = 0;
+    await page.locator('#terminal-screen').tap();
+    await page.waitForTimeout(20);
+    assert(signals.some(s => s.visible), 'terminal display tap opens IME');
+    assert.equal(await page.evaluate(() => document.activeElement.id), 'terminal-input');
+    signals.length = 0;
+    await page.locator('#terminal-screen').tap();
+    await page.waitForTimeout(20);
+    assert(signals.some(s => s.visible), 'terminal re-tap reopens dismissed IME');
+    await page.locator('#terminal-input').evaluate(node => node.readOnly = true);
+    signals.length = 0;
+    await page.locator('#terminal-screen').tap();
+    assert.equal(signals.some(s => s.visible), false, 'readonly terminal does not open IME');
+    await page.locator('#terminal-input').evaluate(node => node.readOnly = false);
+    signals.length = 0;
+    await page.locator('#terminal-scrollbar').tap();
+    assert.equal(signals.some(s => s.visible), false, 'scrollbar touch does not request IME');
 
     await page.locator('#prompt').tap();
     signals.length = 0;
@@ -135,7 +158,7 @@ const fixture = `
     // Disposal removes anonymous listeners and pending callbacks; sequence IDs
     // remain increasing across installation so the daemon accepts the upgrade.
     const previousSequence = signals.filter(s => s.main).at(-1).sequence;
-    await page.evaluate(() => globalThis.__codexImeV6.dispose());
+    await page.evaluate(() => globalThis.__codexImeV7.dispose());
     signals.length = 0;
     await page.locator('#prompt').tap();
     await page.waitForTimeout(20);

@@ -1,5 +1,5 @@
 (() => {
-  const key = '__codexImeV6';
+  const key = '__codexImeV7';
   if (globalThis[key]) {
     globalThis[key].resync();
     return 'already-installed';
@@ -34,6 +34,11 @@
     while (node?.shadowRoot?.activeElement) node = node.shadowRoot.activeElement;
     return node;
   }
+  function terminalInput(node) {
+    const terminal = node?.closest('.xterm');
+    const input = terminal?.querySelector('textarea.xterm-helper-textarea');
+    return input && editable(input) && !node.closest('.xterm-scrollbar, .scrollbar') ? input : null;
+  }
   function report(visible, reason) {
     if (disposed) return;
     // Focusing the prompt after Send is application behavior, not a request to
@@ -60,9 +65,23 @@
     let node = event.composedPath().find(item => item instanceof Element);
     const label = node?.closest('label');
     if (label?.control) node = label.control;
+    // xterm renders text in a canvas/rows and receives keyboard input through
+    // a separate textarea. A trusted tap in its screen is an editing gesture.
+    if (terminalInput(node)) return;
     // Repeat taps reopen an already-focused field after manual IME dismissal.
     report(editable(node), 'pointer');
   }, {capture: true, signal});
+  document.addEventListener('click', event => {
+    if (!event.isTrusted) return;
+    const node = event.composedPath().find(item => item instanceof Element);
+    const input = terminalInput(node);
+    if (!input || document.visibilityState !== 'visible') return;
+    // Touch generates an emulated mousedown after pointerup. Waiting for click
+    // lets that default focus action finish before selecting xterm's input.
+    clearTimeout(pending);
+    input.focus({preventScroll: true});
+    report(true, 'pointer');
+  }, {signal});
   document.addEventListener('focusin', () => {
     clearTimeout(pending);
     reportCurrent('focus');

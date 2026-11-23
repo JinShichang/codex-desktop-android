@@ -350,6 +350,7 @@
     "PhoneCallerGuestTest.kt": "DSH guest relay/config is replaced by the Codex host adapter."
   },
   "localChanges": [
+    "TreeCapture WebView invisible generic-container traversal fix by qiulunye-design, adopted from codex-desktop-android issue #7 (https://github.com/JinShichang/codex-desktop-android/issues/7); keeps native references and marks recovered visual trees incomplete.",
     "Pure draft protocol model retained for upstream regression; Flutter publishing host integration remains unregistered.",
     "Codex native settings, task-bound live notification actions, narrowed MCP instructions, explicit transport lifecycle, Python relay and device-command policy retained.",
     "Codex per-corner edge glow retained; updated upstream EdgeBeam renderer/model retained with attribution but not selected by the host.",

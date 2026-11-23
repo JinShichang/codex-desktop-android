@@ -84,8 +84,18 @@ The same rule applies to `WindowsSandboxProxySettingsMode` from
 Windows launcher. Process requests normally carry `reconcile` even on Linux.
 Both values survive the immutable handoff; unknown values are refused.
 
+Codex 0.171.0 adds `missing_path_behavior: "skip"` to default read-only
+metadata entries. This resolver accepts that value only for a literal path
+ending in `.git`, `.agents` or `.codex`, or an exact one-component metadata
+subpath of `project_roots` (including its legacy alias). The immutable snapshot
+and normalized handoff retain the field. No existence lookup is performed:
+the protection stays in force even when the metadata path is absent. These
+optional rules can only narrow an existing grant; they cannot turn an inherited
+deny or an unmatched path into a readable path. Explicit ordinary access rules
+keep the existing specificity and equal-depth precedence.
+
 The following are explicitly unsupported: globs and scan depth, `minimal` and
-unknown special tokens, non-null missing-path behavior, the **special** full-disk
+unknown special tokens, other non-null missing-path behavior, the **special** full-disk
 root-write mode, other enforcement/network profiles, Windows/UNC/opaque and
 non-UTF-8 paths, control characters, dot segments in ordinary URI/native paths,
 and absolute or parent-traversing project subpaths. Some are valid upstream
@@ -104,7 +114,12 @@ behavior rather than substituting a different interpretation.
 
 ## Source and validation
 
-All references are to official tag `rust-v0.153.4`, commit
+The narrow `skip` compatibility case was checked against official
+`rust-v0.171.0`, commit `ccf9be8cc458bd6b8336fe84d68d8893f2691a5e`:
+`protocol/src/permissions.rs:192-235,2594-2597` and
+`file-system/src/lib.rs:213-235`. Broader missing-path semantics are not claimed.
+
+The base resolver references are to official tag `rust-v0.153.4`, commit
 `042fb41b7c813ac7999105e886b2b7aa715b5081`:
 
 - `file-system/src/lib.rs:174-210,237-291,330-348`: portable JSON types.

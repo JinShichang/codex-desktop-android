@@ -727,6 +727,30 @@ class NativeFilesLiveTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual((self.root / "value").stat().st_ino, before)
             self.assertEqual((self.root / "value").read_bytes(), b"write")
 
+    async def test_optional_metadata_skip_preserves_rpc_reads_writes_and_denials(self):
+        policy = context()
+        entries = policy["permissions"]["file_system"]["entries"]
+        entries.extend({"path": {"type": "special", "value": {"kind": "project_roots", "subpath": name}},
+                        "access": "read", "missing_path_behavior": "skip"}
+                       for name in (".git", ".agents", ".codex"))
+        (self.root / "private/.git").mkdir()
+        (self.root / "private/.git/config").write_bytes(b"denied")
+        entries.append({"path": {"type": "path", "path": "file:///workspace/private/.git"},
+                        "access": "read", "missing_path_behavior": "skip"})
+        self.assertEqual((await self.rpc("value", b"authorized", policy))["result"], {})
+        self.assertEqual(base64.b64decode((await self.rpc("value", policy=policy))["result"]["dataBase64"]),
+                         b"authorized")
+        self.assertEqual(base64.b64decode((await self.rpc(".git/config", policy=policy))["result"]["dataBase64"]),
+                         b"protected")
+        for path in (".git/config", ".agents", ".codex/config", "private/.git/config"):
+            with self.subTest(path=path):
+                self.assertIn("error", await self.rpc(path, b"forbidden", policy))
+        self.assertIn("error", await self.rpc("private/.git/config", policy=policy))
+        self.assertEqual((self.root / ".git/config").read_bytes(), b"protected")
+        self.assertEqual((self.root / "private/.git/config").read_bytes(), b"denied")
+        self.assertFalse((self.root / ".agents").exists())
+        self.assertFalse((self.root / ".codex").exists())
+
     async def test_denied_reads_and_unsupported_context_never_mutate(self):
         self.assertIn("error", await self.rpc("private/secret"))
         self.assertIn("error", await self.rpc("private/secret", b"forbidden"))

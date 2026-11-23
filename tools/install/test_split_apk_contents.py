@@ -45,11 +45,35 @@ class SplitApkContentsTest(unittest.TestCase):
     def put(self, name, value):
         self.files['assets/' + name] = json.dumps(value).encode()
 
-    def verify(self):
+    def verify(self, embedded_engine=False):
         with zipfile.ZipFile(self.apk, 'w') as archive:
             for name, data in self.files.items():
                 archive.writestr(name, data)
-        return CHECK.verify_native_update(self.apk, external_environment=True)
+        return CHECK.verify_native_update(self.apk, external_environment=True, embedded_engine=embedded_engine)
+
+    def embed_engine(self):
+        header = b'\x7fELF\x02\x01\x01' + bytes(11) + (183).to_bytes(2, 'little')
+        files = []
+        for name in ('codex-native', 'codex-code-mode-host'):
+            data = header + name.encode()
+            self.files['assets/gnu-engine/' + name] = data
+            files.append({'name': name, 'bytes': len(data), 'sha256': hashlib.sha256(data).hexdigest()})
+        self.put('gnu-engine/manifest.json', {'schema': 'codex.gnu-engine.payload.v1',
+            'target': 'aarch64-unknown-linux-gnu', 'version': '0.171.0', 'files': files})
+
+    def test_explicit_engine_update_reuses_external_environment(self):
+        self.embed_engine()
+        self.assertTrue(self.verify(embedded_engine=True)['gnuEngineEmbedded'])
+
+    def test_explicit_engine_update_still_requires_matching_complete_pair(self):
+        self.embed_engine()
+        self.files['assets/gnu-engine/codex-native'] += b'tampered'
+        with self.assertRaisesRegex(ValueError, 'differs from its manifest'):
+            self.verify(embedded_engine=True)
+        self.embed_engine()
+        del self.files['assets/gnu-engine/codex-code-mode-host']
+        with self.assertRaisesRegex(ValueError, 'pair is incomplete'):
+            self.verify(embedded_engine=True)
 
     def test_accepts_metadata_only_split_contract(self):
         self.assertEqual('debug-split-environment', self.verify()['variant'])

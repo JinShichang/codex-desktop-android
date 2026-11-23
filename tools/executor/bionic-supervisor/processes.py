@@ -1,5 +1,7 @@
 """Official process wire backed by the separate Bionic notification supervisor."""
 import asyncio
+import ctypes
+import errno
 from dataclasses import dataclass
 import hashlib
 import json
@@ -61,6 +63,28 @@ class CwdShim:
                 raise ValueError("cwdShim differs from its bootstrap attestation")
         finally:
             os.close(fd)
+
+
+def require_kernel_sandbox():
+    """Probe before spawning; keep approval policy entirely inside Codex.
+
+    Linux uses syscall 444 for this query on both supported native test hosts
+    and Android ARM64. Unknown architectures fail without requesting a retry.
+    -32042 is private to the authenticated local native transport, and means
+    that no worker was created. It never authorizes execution by itself.
+    """
+    if os.uname().machine not in ("aarch64", "x86_64"):
+        raise RpcError(-32603, "Unsupported native sandbox query architecture")
+    libc = ctypes.CDLL(None, use_errno=True)
+    libc.syscall.restype = ctypes.c_long
+    abi = libc.syscall(ctypes.c_long(444), ctypes.c_void_p(), ctypes.c_size_t(0), ctypes.c_uint(1))
+    error = ctypes.get_errno() if abi < 0 else 0
+    if 0 <= abi < 6 or (abi < 0 and error in (errno.ENOSYS, errno.EOPNOTSUPP)):
+        raise RpcError(-32042, "Android kernel cannot provide the required Landlock sandbox; command was not started. "
+            "If permitted by the current approval policy, retry with sandbox_permissions=require_escalated "
+            "through Codex's configured reviewer.")
+    if abi < 0:
+        raise RpcError(-32603, "Landlock capability query failed: " + os.strerror(error))
 
 
 class Processes(NativeProcessesBackend):
@@ -222,6 +246,10 @@ class Processes(NativeProcessesBackend):
             info = os.stat(record.executable.path, follow_symlinks=False)
             if (info.st_dev, info.st_ino) != (record.executable.device, record.executable.inode):
                 raise RpcError(-32603, "Bionic executable changed after admission")
+            # Validate the complete policy first, then check kernel capability.
+            # A missing sandbox follows Codex's existing approval/escalation
+            # path; no command or supervisor has been spawned at this point.
+            require_kernel_sandbox()
             control, peer = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
             command, command_peer = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
             endpoints.extend((control, peer, command, command_peer))
@@ -285,7 +313,11 @@ class Processes(NativeProcessesBackend):
                 raise
             record.failure = record.failure or str(error) or "Bionic start cancelled"
             if not record.started.done():
-                record.started.set_exception(RpcError(-32603, record.failure))
+                # Preserve only the dedicated pre-spawn capability error.
+                # Unknown launch/transport/cleanup failures remain nonretryable.
+                failure = error if (process is None and isinstance(error, RpcError)
+                    and error.code == -32042) else RpcError(-32603, record.failure)
+                record.started.set_exception(failure)
         finally:
             if process is not None and process.returncode is None:
                 self._terminate(record)

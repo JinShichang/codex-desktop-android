@@ -34,6 +34,12 @@ public final class AndroidToolsActivity extends androidx.appcompat.app.AppCompat
         int pad = (int)(24 * getResources().getDisplayMetrics().density); content.setPadding(pad,pad,pad,pad);
         scroll.addView(content); setContentView(scroll);
         text("Android 工具", 25);
+        String liveStatus = !LiveNotifications.notificationsEnabled(this) ? "通知未允许"
+                : android.os.Build.VERSION.SDK_INT < 36 ? "系统不支持，使用普通通知"
+                : LiveNotifications.canPromote(this) ? "已允许" : "未允许，使用普通通知";
+        text("原生实时通知：" + liveStatus, 18);
+        text("对话任务和手机操控进行时更新通知。支持的系统可显示为灵动岛或超级岛，具体样式由系统决定。", 16);
+        button("灵动岛 / 超级岛 / 实时通知设置", () -> startActivity(LiveNotifications.settingsIntent(this)));
         text("图形模式：" + CodexGraphics.LABELS[CodexGraphics.selected(this)], 18);
         button("选择图形模式（下次启动生效）", () -> new androidx.appcompat.app.AlertDialog.Builder(this)
                 .setTitle("图形渲染模式")

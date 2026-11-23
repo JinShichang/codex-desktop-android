@@ -1,0 +1,17 @@
+{
+  "repository": "https://github.com/eltavine/Duck-Detector-Refactoring",
+  "commit": "ba8ea3c496a5348c977e87ce565c870a565fb5ee",
+  "license": "Apache-2.0",
+  "copyright": "Copyright 2026 Duck Apps Contributor",
+  "referencedFiles": [
+    "app/src/main/java/com/eltavine/duckdetector/notifications/ScanProgressNotifier.kt",
+    "app/src/main/java/com/eltavine/duckdetector/notifications/ScanNotificationPermissions.kt"
+  ],
+  "adaptedInto": "android/app/src/main/java/com/ai/codex/LiveNotifications.java",
+  "changes": [
+    "Uses Android framework notification APIs instead of adding a NotificationCompat dependency.",
+    "Reuses Codex conversation and phone task notifications, IDs, controls and termination lifecycle.",
+    "Uses indeterminate progress because agent tasks have no known completion total.",
+    "Exposes notification and promotion settings in Android tools and phone control settings; unsupported or denied promotion falls back to an ordinary notification."
+  ]
+}

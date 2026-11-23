@@ -295,7 +295,7 @@ public final class CodexRuntimeService extends Service {
             .setContentText(working ? "Codex 正在工作" : "Codex 正在运行").build());
         String nextLiveText = working ? text : "";
         if (!nextLiveText.equals(liveText)) { liveText = nextLiveText; liveTextSince = liveFrame; }
-        return LiveNotifications.apply(builder, working && !LiveNotifications.phoneIsActive(this), text, liveFrame - liveTextSince).build();
+        return LiveNotifications.apply(this, builder, working && !LiveNotifications.phoneIsActive(this), text, liveFrame - liveTextSince).build();
     }
     private void broadcastPhase() {
         sendBroadcast(new Intent(ACTION_STATUS).setPackage(getPackageName()).putExtra("phase", phase)

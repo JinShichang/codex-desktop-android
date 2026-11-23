@@ -79,7 +79,7 @@ object PhoneHost {
                 .addAction(Notification.Action.Builder(null, if (task.paused) "继续" else "暂停", pause).build())
                 .addAction(Notification.Action.Builder(null, "停止手机操控", stop).build())
             runCatching {
-                n.notify(LiveNotifications.PHONE_ID, LiveNotifications.apply(builder, true, line, frame++).build())
+                n.notify(LiveNotifications.PHONE_ID, LiveNotifications.apply(c, builder, true, line, frame++).build())
                 LiveNotifications.phoneChanged(c)
             }
             postedAt = SystemClock.elapsedRealtime()

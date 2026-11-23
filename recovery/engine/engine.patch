@@ -11923,8 +11923,73 @@ index efd96ea2e90f85e1646b2408f42b93c148a6a165..050c48fde9c9b8cd8750599020cd0f18
      windows_sandbox_type: SandboxType,
      windows_sandbox_level: WindowsSandboxLevel,
      cwd: &PathUri,
+diff --git a/codex-rs/core/src/unified_exec/errors.rs b/codex-rs/core/src/unified_exec/errors.rs
+index 8fa2ef7857bbe6c9870c59cc47dbe1540a5ba7a8..e11f765962890f17ae5ce66e27bf2b8171a14655 100644
+--- a/codex-rs/core/src/unified_exec/errors.rs
++++ b/codex-rs/core/src/unified_exec/errors.rs
+@@ -38,6 +38,26 @@ impl UnifiedExecError {
+         Self::CreateProcess { message }
+     }
+ 
++    pub(crate) fn from_exec_server_start(error: codex_exec_server::ExecServerError) -> Self {
++        match error {
++            codex_exec_server::ExecServerError::LocalSandboxUnavailable(message) => {
++                // Preserve the native orchestrator's Guardian/user approval,
++                // retry authorization and full-access behavior. This is a
++                // failed sandbox setup, never a successful command exit.
++                let output = ExecToolCallOutput {
++                    exit_code: 1,
++                    stderr: codex_protocol::exec_output::StreamOutput::new(message.clone()),
++                    aggregated_output: codex_protocol::exec_output::StreamOutput::new(
++                        message.clone(),
++                    ),
++                    ..Default::default()
++                };
++                Self::sandbox_denied(message, output)
++            }
++            other => Self::create_process(other.to_string()),
++        }
++    }
++
+     pub(crate) fn process_failed(message: String) -> Self {
+         Self::ProcessFailed { message }
+     }
+@@ -69,3 +89,33 @@ impl UnifiedExecError {
+         }
+     }
+ }
++
++#[cfg(test)]
++mod local_sandbox_start_tests {
++    use super::*;
++
++    #[test]
++    fn missing_local_sandbox_is_denied_before_command_start() {
++        let error = UnifiedExecError::from_exec_server_start(
++            codex_exec_server::ExecServerError::LocalSandboxUnavailable(
++                "Landlock unavailable".into(),
++            ),
++        );
++        match error {
++            UnifiedExecError::SandboxDenied { output, .. } => {
++                assert_eq!(output.exit_code, 1);
++                assert_eq!(output.aggregated_output.text, "Landlock unavailable");
++            }
++            other => panic!("expected sandbox denial, got {other:?}"),
++        }
++        let ordinary_failure =
++            UnifiedExecError::from_exec_server_start(codex_exec_server::ExecServerError::Server {
++                code: -32603,
++                message: "setup failed".into(),
++            });
++        assert!(matches!(
++            ordinary_failure,
++            UnifiedExecError::CreateProcess { .. }
++        ));
++    }
++}
 diff --git a/codex-rs/core/src/unified_exec/process_manager.rs b/codex-rs/core/src/unified_exec/process_manager.rs
-index 1b8e339ab4fb27f28a588425c2b1e93261dc39ec..9795ebc884b30eb4ec0e0eb21d2d117fc097228b 100644
+index 1b8e339ab4fb27f28a588425c2b1e93261dc39ec..1d7bf7606826242b275703d0cf5f677c0d3fe7bf 100644
 --- a/codex-rs/core/src/unified_exec/process_manager.rs
 +++ b/codex-rs/core/src/unified_exec/process_manager.rs
 @@ -1366,7 +1366,12 @@ impl UnifiedExecProcessManager {
@@ -11941,6 +12006,15 @@ index 1b8e339ab4fb27f28a588425c2b1e93261dc39ec..9795ebc884b30eb4ec0e0eb21d2d117f
              let backend = environment.get_exec_backend();
              let params = exec_server_params_for_request(
                  process_id,
+@@ -1392,7 +1397,7 @@ impl UnifiedExecProcessManager {
+                 }
+                 None => backend.start(params).await,
+             }
+-            .map_err(|err| UnifiedExecError::create_process(err.to_string()))?;
++            .map_err(UnifiedExecError::from_exec_server_start)?;
+             let output_drain_policy = if environment.is_remote() {
+                 OutputDrainPolicy::WaitForOutputClosure
+             } else {
 diff --git a/codex-rs/core/tests/common/test_codex.rs b/codex-rs/core/tests/common/test_codex.rs
 index 25cc2365a115b443259346d3af3adf6b7eff565e..8ccaed0e5d6abc6d4800a428a3c3866a662ec616 100644
 --- a/codex-rs/core/tests/common/test_codex.rs
@@ -14359,7 +14433,7 @@ index 0000000000000000000000000000000000000000..f75e5ce4c895452be8d200e35b776461
 +    }
 +}
 diff --git a/codex-rs/exec-server/src/client.rs b/codex-rs/exec-server/src/client.rs
-index 90494b58e173566b867bc121161ec207fc87f2b8..7baab565d0730ef944786009ca891e657340d385 100644
+index 90494b58e173566b867bc121161ec207fc87f2b8..24446f6e0cc44ca13a0bc96e07d9c3eb7a002bc0 100644
 --- a/codex-rs/exec-server/src/client.rs
 +++ b/codex-rs/exec-server/src/client.rs
 @@ -148,6 +148,8 @@ use codex_http_client::HttpClientFactory;
@@ -14371,6 +14445,29 @@ index 90494b58e173566b867bc121161ec207fc87f2b8..7baab565d0730ef944786009ca891e65
  pub(crate) mod http_client;
  mod network_policy_audit;
  #[cfg(test)]
+@@ -713,6 +715,10 @@ pub enum ExecServerError {
+     ProvisioningModeConflict { environment_id: String },
+     #[error("exec-server rejected request ({code}): {message}")]
+     Server { code: i64, message: String },
++    /// Authenticated local executor could not install its kernel sandbox.
++    /// No command ran; callers must use their normal approval/retry flow.
++    #[error("{0}")]
++    LocalSandboxUnavailable(String),
+     #[error("environment registry request failed ({status}{code_suffix}): {message}", code_suffix = .code.as_ref().map(|code| format!(", {code}")).unwrap_or_default())]
+     EnvironmentRegistryHttp {
+         status: http::StatusCode,
+diff --git a/codex-rs/exec-server/src/client/connection_failure.rs b/codex-rs/exec-server/src/client/connection_failure.rs
+index af0d1df9aad024584024ac07f4111ad6150823ad..66876f5c2ae87adf9271d9ece8a25c84ad4fd3dc 100644
+--- a/codex-rs/exec-server/src/client/connection_failure.rs
++++ b/codex-rs/exec-server/src/client/connection_failure.rs
+@@ -51,6 +51,7 @@ impl ExecServerError {
+             | Self::AuthenticationRequired(_)
+             | Self::ProvisioningModeConflict { .. }
+             | Self::Server { .. }
++            | Self::LocalSandboxUnavailable(_)
+             | Self::EnvironmentRegistryHttp { .. }
+             | Self::EnvironmentRegistryConfig(_)
+             | Self::EnvironmentRegistryAuth(_)
 diff --git a/codex-rs/exec-server/src/client/fixed_transport.rs b/codex-rs/exec-server/src/client/fixed_transport.rs
 new file mode 100644
 index 0000000000000000000000000000000000000000..dcbc3acffc4958447b974848c6260f114f935921
@@ -18298,7 +18395,7 @@ index 06762ed9b483c32c667ca7887eb92876a2b77b0b..0e0a55d0984a8a9304a2cc9fe75c9760
              .await;
          self.lock_metadata_requests().clear();
 diff --git a/codex-rs/exec-server/src/remote_process.rs b/codex-rs/exec-server/src/remote_process.rs
-index 4c2d4c8e63514a3f8157f1b0275662f5407fcd68..241c874d3143630d8e844a2072265d3b31d364e8 100644
+index 4c2d4c8e63514a3f8157f1b0275662f5407fcd68..ef4edf7bf0e89b8d3d7825e991ff4d03c0ca242d 100644
 --- a/codex-rs/exec-server/src/remote_process.rs
 +++ b/codex-rs/exec-server/src/remote_process.rs
 @@ -21,16 +21,34 @@ use crate::protocol::WriteResponse;
@@ -18337,15 +18434,20 @@ index 4c2d4c8e63514a3f8157f1b0275662f5407fcd68..241c874d3143630d8e844a2072265d3b
      }
  
      async fn start(
-@@ -39,11 +57,18 @@ impl RemoteProcess {
+@@ -39,16 +57,46 @@ impl RemoteProcess {
          network_policy_decider: Option<Arc<dyn NetworkPolicyDecider>>,
      ) -> Result<StartedExecProcess, crate::ExecServerError> {
          let client = self.client.get().await?;
+-        let session = client.start_process(params, network_policy_decider).await?;
 +        let params = match self.failure_transfer {
 +            FailureTransfer::NativeError => legacy_native_process_params(params),
 +            FailureTransfer::SessionResponse => params,
 +        };
-         let session = client.start_process(params, network_policy_decider).await?;
++        let sandbox_requested = params.sandbox.is_some();
++        let session = client
++            .start_process(params, network_policy_decider)
++            .await
++            .map_err(|err| native_start_error(self.failure_transfer, sandbox_requested, err))?;
          let sandbox_type = sandbox_type_from_protocol(session.sandbox_type());
  
          Ok(StartedExecProcess {
@@ -18357,7 +18459,31 @@ index 4c2d4c8e63514a3f8157f1b0275662f5407fcd68..241c874d3143630d8e844a2072265d3b
              sandbox_type,
          })
      }
-@@ -72,7 +97,17 @@ impl RemoteExecProcess {
+ }
+ 
++// This code is private to the authenticated Android process/start endpoint.
++// Never interpret the same server code from a remote environment or an already
++// unsandboxed request as permission to retry with broader authority.
++fn native_start_error(
++    transfer: FailureTransfer,
++    sandbox_requested: bool,
++    error: crate::ExecServerError,
++) -> crate::ExecServerError {
++    match error {
++        crate::ExecServerError::Server {
++            code: -32042,
++            message,
++        } if matches!(transfer, FailureTransfer::NativeError) && sandbox_requested => {
++            crate::ExecServerError::LocalSandboxUnavailable(message)
++        }
++        other => other,
++    }
++}
++
+ impl ExecBackend for RemoteProcess {
+     fn start(&self, params: ExecParams) -> ExecBackendFuture<'_> {
+         Box::pin(RemoteProcess::start(
+@@ -72,7 +120,17 @@ impl RemoteExecProcess {
          max_bytes: Option<usize>,
          wait_ms: Option<u64>,
      ) -> Result<ReadResponse, crate::ExecServerError> {
@@ -18376,7 +18502,7 @@ index 4c2d4c8e63514a3f8157f1b0275662f5407fcd68..241c874d3143630d8e844a2072265d3b
      }
  
      async fn write(&self, chunk: Vec<u8>) -> Result<WriteResponse, crate::ExecServerError> {
-@@ -135,3 +170,38 @@ impl Drop for RemoteExecProcess {
+@@ -135,3 +193,71 @@ impl Drop for RemoteExecProcess {
          });
      }
  }
@@ -18393,6 +18519,39 @@ index 4c2d4c8e63514a3f8157f1b0275662f5407fcd68..241c874d3143630d8e844a2072265d3b
 +mod native_wire_tests {
 +    use super::*;
 +    use serde_json::json;
++
++    #[test]
++    fn only_local_sandbox_capability_errors_enter_approval_flow() {
++        let error = || crate::ExecServerError::Server {
++            code: -32042,
++            message: "Landlock unavailable; command not started".into(),
++        };
++        assert!(matches!(
++            native_start_error(FailureTransfer::NativeError, true, error()),
++            crate::ExecServerError::LocalSandboxUnavailable(_)
++        ));
++        for (transfer, sandbox) in [
++            (FailureTransfer::SessionResponse, true),
++            (FailureTransfer::NativeError, false),
++            (FailureTransfer::SessionResponse, false),
++        ] {
++            assert!(matches!(
++                native_start_error(transfer, sandbox, error()),
++                crate::ExecServerError::Server { code: -32042, .. }
++            ));
++        }
++        assert!(matches!(
++            native_start_error(
++                FailureTransfer::NativeError,
++                true,
++                crate::ExecServerError::Server {
++                    code: -32603,
++                    message: "setup failed".into()
++                }
++            ),
++            crate::ExecServerError::Server { code: -32603, .. }
++        ));
++    }
 +
 +    #[test]
 +    fn native_wire_omits_optional_attribution_and_preserves_complete_policy() {

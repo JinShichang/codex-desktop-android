@@ -191,7 +191,7 @@ internal object TreeCapture {
                     systemFront = w.type == AccessibilityWindowInfo.TYPE_SYSTEM
                 }
                 val title = if (Build.VERSION.SDK_INT >= 24) w.title?.toString() else null
-                val node = convert(root, 0, st, refresh = false)
+                val node = convert(root, 0, st)
                 // Inspect the whole subtree, not just the root's child count. A chain of empty
                 // layouts is still unreadable; an unlabelled canvas is not evidence of filtering.
                 val emptyFront = chosen.isEmpty() && w.type == AccessibilityWindowInfo.TYPE_APPLICATION &&
@@ -270,8 +270,7 @@ internal object TreeCapture {
             st.typedFresh = false
     }
 
-    private fun convert(node: AccessibilityNodeInfo, depth: Int, st: State, refresh: Boolean = true): UiNode? {
-        if (refresh) refreshTyped(node, st)
+    private fun convert(node: AccessibilityNodeInfo, depth: Int, st: State, insideWebView: Boolean = false): UiNode? {
         if (!node.isVisibleToUser) { release(node); return null }
         node.getBoundsInScreen(st.rect)
         val bounds = Box(st.rect.left, st.rect.top, st.rect.right, st.rect.bottom)
@@ -279,20 +278,10 @@ internal object TreeCapture {
         st.natives += node
         st.count++
 
+        val className = node.className?.toString().orEmpty()
         val rawChildren = node.childCount
         val children = ArrayList<UiNode>(rawChildren)
-        if (depth < MAX_DEPTH) {
-            for (i in 0 until rawChildren) {
-                if (st.count >= MAX_NODES || SystemClock.uptimeMillis() > st.deadline) { st.truncated = true; break }
-                val child = try { node.getChild(i) } catch (_: Throwable) { null }
-                if (child == null) {
-                    st.visualComplete = false
-                    st.partial = true
-                    continue
-                }
-                convert(child, depth + 1, st)?.let(children::add)
-            }
-        } else if (rawChildren > 0) st.truncated = true
+        appendChildren(node, rawChildren, depth, st, insideWebView || className == "android.webkit.WebView", children)
 
         var scroll = 0
         if (node.isScrollable) for (action in node.actionList) scrollIds[action.id]?.let { scroll = scroll or it }
@@ -302,7 +291,7 @@ internal object TreeCapture {
         val range = node.rangeInfo
         return UiNode(
             ref = ref,
-            className = node.className?.toString().orEmpty(),
+            className = className,
             text = node.text?.toString(),
             desc = node.contentDescription?.toString(),
             hint = if (Build.VERSION.SDK_INT >= 26) node.hintText?.toString() else null,
@@ -330,4 +319,50 @@ internal object TreeCapture {
             actionClick = node.actionList.any { it.id == AccessibilityNodeInfo.ACTION_CLICK },
         )
     }
+
+    private fun appendChildren(
+        node: AccessibilityNodeInfo,
+        rawChildren: Int,
+        depth: Int,
+        st: State,
+        insideWebView: Boolean,
+        children: MutableList<UiNode>,
+    ) {
+        if (depth >= MAX_DEPTH) {
+            if (rawChildren > 0) st.truncated = true
+            return
+        }
+        for (index in 0 until rawChildren) {
+            if (st.count >= MAX_NODES || SystemClock.uptimeMillis() > st.deadline) {
+                st.truncated = true
+                break
+            }
+            val child = try { node.getChild(index) } catch (_: Throwable) { null }
+            if (child == null) {
+                st.visualComplete = false
+                st.partial = true
+                continue
+            }
+            refreshTyped(child, st)
+            if (insideWebView && !child.isVisibleToUser && isWebContainer(child)) {
+                // A WebView can expose visible descendants through an invisible layout container.
+                // Its descendants keep native references. Visual actions require an intact tree.
+                st.count++
+                val previousSize = children.size
+                try {
+                    appendChildren(child, child.childCount, depth + 1, st, true, children)
+                } finally {
+                    release(child)
+                }
+                if (children.size != previousSize) st.visualComplete = false
+                continue
+            }
+            convert(child, depth + 1, st, insideWebView)?.let(children::add)
+        }
+    }
+
+    private fun isWebContainer(node: AccessibilityNodeInfo): Boolean =
+        node.className?.toString() == "android.view.View" && node.childCount > 0 &&
+            !node.isClickable && !node.isLongClickable && !node.isCheckable && !node.isEditable && !node.isPassword &&
+            (Build.VERSION.SDK_INT < 34 || !node.isAccessibilityDataSensitive)
 }

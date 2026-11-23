@@ -54,11 +54,15 @@ if (gnuEngineAssets.isPresent()) {
             || engine.files*.name != ['codex-native', 'codex-code-mode-host'])
         throw new GradleException('Unsupported GNU engine payload identity')
     def externalPayload = providers.gradleProperty('codexExternalEnvironment').getOrElse('false').toBoolean()
+    // Explicit backend-only update: reuse the environment and embed its new pair.
+    def embeddedUpdate = providers.gradleProperty('codexEmbedGnuEngineUpdate').getOrElse('false').toBoolean()
+    if (embeddedUpdate && !externalPayload)
+        throw new GradleException('codexEmbedGnuEngineUpdate requires codexExternalEnvironment')
     engine.files.each { item ->
         def binary = new File(supplied, 'gnu-engine/' + item.name)
-        if (!externalPayload && (!binary.isFile() || binary.length() != item.bytes))
+        if ((!externalPayload || embeddedUpdate) && (!binary.isFile() || binary.length() != item.bytes))
             throw new GradleException('GNU engine payload size differs: ' + item.name)
-        if (externalPayload && binary.exists()) throw new GradleException('Split APK must not contain the GNU payload')
+        if (externalPayload && !embeddedUpdate && binary.exists()) throw new GradleException('Split APK must not contain the GNU payload')
     }
     android.sourceSets.main.assets.srcDir(supplied)
 }
