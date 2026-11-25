@@ -44,12 +44,39 @@ dependencies {
 
 // A matched pair of GNU controller/Code Mode binaries is installed separately
 // from the immutable Bionic executor. Existing projects and credentials stay put.
+// Full APKs can keep only descriptors here and extract both payloads from the
+// single embedded image, including on an existing installation.
+def payloadsFromImage = providers.gradleProperty('codexPayloadsFromPhoneImage').getOrElse('false').toBoolean()
+if (payloadsFromImage && (!providers.gradleProperty('codexEmbedPhoneImage').getOrElse('false').toBoolean()
+        || providers.gradleProperty('codexExternalEnvironment').getOrElse('false').toBoolean()
+        || !providers.gradleProperty('codexPhoneImageAssets').isPresent()
+        || !providers.gradleProperty('codexDesktopClientAssets').isPresent()
+        || !providers.gradleProperty('codexGnuEngineAssets').isPresent()))
+    throw new GradleException('Image payload reuse requires an embedded image and both payload descriptors')
+def selectedEnginePayload = null
+def selectedDesktopPayload = null
+def addPayloadAssets = { String taskName, File supplied, String descriptor ->
+    if (!payloadsFromImage) {
+        android.sourceSets.main.assets.srcDir(supplied)
+    } else {
+        def staged = layout.buildDirectory.dir('generated/' + taskName)
+        def sync = tasks.register(taskName, PhoneImageAssets) {
+            from(supplied) { include descriptor }
+            outputDir.set(staged)
+            into outputDir
+        }
+        androidComponents.onVariants(androidComponents.selector().all()) { variant ->
+            variant.sources.assets.addGeneratedSourceDirectory(sync) { it.outputDir }
+        }
+    }
+}
 def gnuEngineAssets = providers.gradleProperty('codexGnuEngineAssets')
 if (gnuEngineAssets.isPresent()) {
     def supplied = file(gnuEngineAssets.get()).canonicalFile
     def descriptor = new File(supplied, 'gnu-engine/manifest.json')
     if (!descriptor.isFile()) throw new GradleException('GNU engine payload manifest is missing')
     def engine = new groovy.json.JsonSlurper().parse(descriptor)
+    selectedEnginePayload = engine
     if (engine.schema != 'codex.gnu-engine.payload.v1' || engine.target != 'aarch64-unknown-linux-gnu'
             || engine.files*.name != ['codex-native', 'codex-code-mode-host'])
         throw new GradleException('Unsupported GNU engine payload identity')
@@ -60,11 +87,11 @@ if (gnuEngineAssets.isPresent()) {
         throw new GradleException('codexEmbedGnuEngineUpdate requires codexExternalEnvironment')
     engine.files.each { item ->
         def binary = new File(supplied, 'gnu-engine/' + item.name)
-        if ((!externalPayload || embeddedUpdate) && (!binary.isFile() || binary.length() != item.bytes))
+        if (((!externalPayload && !payloadsFromImage) || embeddedUpdate) && (!binary.isFile() || binary.length() != item.bytes))
             throw new GradleException('GNU engine payload size differs: ' + item.name)
         if (externalPayload && !embeddedUpdate && binary.exists()) throw new GradleException('Split APK must not contain the GNU payload')
     }
-    android.sourceSets.main.assets.srcDir(supplied)
+    addPayloadAssets('syncGnuPayloadMetadata', supplied, 'gnu-engine/manifest.json')
 }
 
 // A desktop update can be staged separately in a local candidate APK.
@@ -74,15 +101,16 @@ if (desktopClientAssets.isPresent()) {
     def manifest = new File(supplied, 'desktop-client/manifest.json')
     def archive = new File(supplied, 'desktop-client/client.tgz')
     def externalPayload = providers.gradleProperty('codexExternalEnvironment').getOrElse('false').toBoolean()
-    if (!manifest.isFile() || (!externalPayload && !archive.isFile()))
+    if (!manifest.isFile() || (!externalPayload && !payloadsFromImage && !archive.isFile()))
         throw new GradleException('Desktop update assets are incomplete')
     def desktop = new groovy.json.JsonSlurper().parse(manifest)
+    selectedDesktopPayload = desktop
     if (desktop.schema != 'codex.desktop.payload.v1' || desktop.architecture != 'arm64'
-            || (!externalPayload && archive.length() != desktop.compressedBytes))
+            || (!externalPayload && !payloadsFromImage && archive.length() != desktop.compressedBytes))
         throw new GradleException('Desktop update assets do not match their manifest')
     if (externalPayload && archive.exists()) throw new GradleException('Split APK must not contain the desktop payload')
     android.androidResources.noCompress.add('tgz')
-    android.sourceSets.main.assets.srcDir(supplied)
+    addPayloadAssets('syncDesktopPayloadMetadata', supplied, 'desktop-client/manifest.json')
 }
 
 // A complete first-install release is selected separately from executor assets.
@@ -97,6 +125,8 @@ if (phoneImageAssets.isPresent()) {
     def inventoryFile = new File(supplied, 'phone-runtime/inventory.json')
     if (!releaseFile.isFile() || !inventoryFile.isFile()) throw new GradleException('Complete phone image release assets are missing')
     def release = new groovy.json.JsonSlurper().parse(releaseFile)
+    if (payloadsFromImage && (release.clientPayload != selectedDesktopPayload || release.enginePayload != selectedEnginePayload))
+        throw new GradleException('Payload descriptors differ from the embedded image')
     def hash = java.security.MessageDigest.getInstance('SHA-256').digest(inventoryFile.bytes).encodeHex().toString()
     if (release.format != 'codex.phone-image.v1' || hash != release.inventorySha256
             || inventoryFile.length() != release.inventoryBytes || release.accountIncluded || release.keyringIncluded) {

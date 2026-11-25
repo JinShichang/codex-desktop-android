@@ -130,6 +130,42 @@ KNOWN['f0752b2e81b94fdfdd986091c80466a05cb2f848289fd4c20887cd411a577670'] = {
     ],
 }
 
+# Official Linux ARM64 desktop 26.1120.41243; same reviewed hook roles as 26.1117.31558.
+KNOWN['d30bfa984959784848c051d443eae8b986ea2b7f46ec50bfbcdf5b6267fc36de'] = {'module': '.vite/build/early-bootstrap-824-2ecd0bf923d56c72.js',
+ 'sha256': '6e21a71b8a2e0cff3fd7b45c0274e796b85432e30e9744525030162fa640b34e',
+ 'bootstrap': {'module': '.vite/build/early-bootstrap.js',
+               'sha256': '07cfc0e1966e19e0344206402e0f4fa7a73e938e535d097c5148521d8f00228e'},
+ 'windowMode': {'module': '.vite/build/early-bootstrap-916-5cf181a62de3d3c8.js',
+                'sha256': '5cc6e031c038e97aee2e8b84f0be3658664387ba26218d2a3eefba46217278d8',
+                'at': 2564918},
+ 'catalogSync': {'module': 'webview/assets/async/886197.66245499ac.js',
+                 'sha256': '720143e45fd97e9944d89bb8a5692b3f7a0425692add2dce819e80a28143f16f',
+                 'at': 132347,
+                 'before': ',(0,h.useEffect)(()=>{a?.then(()=>g.reconcileHosts()).catch(()=>{})},[a,g])',
+                 'code': ',(0,h.useEffect)(()=>{g.updateStatus(n)},[g,n])'},
+ 'insertions': [{'at': 190165,
+                 'code': "require('/usr/local/lib/codex/codex-workspace-provider.cjs').integrateStartupTransportResolver(",
+                 'role': 'startup-config-start'},
+                {'at': 190173, 'code': ')', 'role': 'startup-config-end'},
+                {'at': 190206,
+                 'code': "require('/usr/local/lib/codex/codex-workspace-provider.cjs').integrateStartupTransportResolver(",
+                 'role': 'startup-signOut-start'},
+                {'at': 190214, 'code': ')', 'role': 'startup-signOut-end'},
+                {'at': 241507,
+                 'code': '\n'
+                         ';/* Codex workspace provider v1 */\n'
+                         "({resolveManifest:et,validatePaths:ev,diagnose:X}=require('/usr/local/lib/codex/codex-workspace-provider.cjs').integrate({resolveManifest:et,validatePaths:ev,diagnose:X}));\n",
+                 'role': 'workspaceProvider'},
+                {'at': 223031,
+                 'code': "require('/usr/local/lib/codex/codex-workspace-provider.cjs').integrate({instructions:",
+                 'role': 'wrap-instructions-start'},
+                {'at': 223633, 'code': '}).instructions', 'role': 'wrap-instructions-end'},
+                {'at': 228522,
+                 'code': "require('/usr/local/lib/codex/codex-workspace-provider.cjs').integrate({downloadFile:",
+                 'role': 'wrap-downloadFile-start'},
+                {'at': 229263, 'code': '}).downloadFile', 'role': 'wrap-downloadFile-end'}]}
+
+
 
 def digest(data):
     return hashlib.sha256(data).hexdigest()

@@ -99,6 +99,58 @@ class SplitApkContentsTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'full environment archive'):
             self.verify()
 
+    def image_payloads(self):
+        release = json.loads(self.files['assets/phone-runtime/release.json'])
+        image = b'ZIP contract fixture, not a runnable phone image'
+        release.update(spec={'compressedBytes': len(image)},
+                clientPayload=json.loads(self.files['assets/desktop-client/manifest.json']),
+                enginePayload=json.loads(self.files['assets/gnu-engine/manifest.json']))
+        self.put('phone-runtime/release.json', release)
+        self.files['assets/phone-runtime/codex-phone-rootfs.tgz'] = image
+        self.files['classes.dex'] += b'Lcom/ai/codex/install/EmbeddedRuntimePayloadInstaller;'
+
+    def verify_image(self):
+        with zipfile.ZipFile(self.apk, 'w') as archive:
+            for name, data in self.files.items():
+                archive.writestr(name, data)
+        return CHECK.verify_native_update(self.apk, image_payloads=True)
+
+    def test_full_image_reuses_payloads_without_duplicate_assets(self):
+        self.image_payloads()
+        result = self.verify_image()
+        self.assertEqual('debug-full-image-payloads', result['variant'])
+        self.assertTrue(result['payloadsFromPhoneImage'])
+        self.assertFalse(result['gnuEngineEmbedded'])
+
+    def test_full_image_rejects_duplicate_payloads(self):
+        self.image_payloads()
+        for name in ('assets/desktop-client/client.tgz', 'assets/gnu-engine/codex-native'):
+            self.files[name] = b'duplicate'
+            with self.assertRaises(ValueError):
+                self.verify_image()
+            del self.files[name]
+
+    def test_full_image_requires_matching_descriptors_and_update_installer(self):
+        self.image_payloads()
+        release = json.loads(self.files['assets/phone-runtime/release.json'])
+        release['enginePayload']['version'] = 'wrong'
+        self.put('phone-runtime/release.json', release)
+        with self.assertRaisesRegex(ValueError, 'matching image'):
+            self.verify_image()
+        self.image_payloads()
+        self.files['classes.dex'] = self.files['classes.dex'].replace(
+                b'Lcom/ai/codex/install/EmbeddedRuntimePayloadInstaller;', b'')
+        with self.assertRaisesRegex(ValueError, 'update installer'):
+            self.verify_image()
+
+    def test_full_image_rejects_the_release_asset_size_limit(self):
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        self.image_payloads()
+        with patch.object(Path, 'stat', return_value=SimpleNamespace(st_size=2**31)):
+            with self.assertRaisesRegex(ValueError, '2 GiB'):
+                self.verify_image()
+
 
 if __name__ == '__main__':
     unittest.main()

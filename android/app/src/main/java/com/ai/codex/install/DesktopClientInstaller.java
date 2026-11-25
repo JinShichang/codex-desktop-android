@@ -3,6 +3,7 @@ package com.ai.codex.install;
 import android.content.Context;
 import android.content.res.AssetManager;
 import android.system.Os;
+import android.system.ErrnoException;
 import android.system.OsConstants;
 import android.system.StructStat;
 import com.ai.codex.InputStreams;
@@ -28,6 +29,12 @@ public final class DesktopClientInstaller {
     private DesktopClientInstaller() {}
 
     public static String install(Context context, File installedRoot, Runnable onExtract)
+            throws Exception {
+        return install(context, installedRoot, onExtract, null);
+    }
+
+    /** Reuses a desktop tree from an unpublished, authenticated full image. */
+    public static String install(Context context, File installedRoot, Runnable onExtract, Path imagePayload)
             throws Exception {
         AssetManager assets = context.getAssets();
         String[] entries = assets.list(ASSETS);
@@ -62,24 +69,36 @@ public final class DesktopClientInstaller {
         }
         Path destination = parent.resolve(name);
         if (!Files.exists(destination, LinkOption.NOFOLLOW_LINKS)) {
-            if (!Arrays.asList(entries).contains("client.tgz")) {
+            if (!Arrays.asList(entries).contains("client.tgz") && imagePayload == null) {
                 // Split releases keep the original client in the authenticated
                 // environment; v79 versioned clients remain preferred above.
                 Path descriptor = root.resolve("usr/local/share/codex/desktop-runtime.json");
-                StructStat metadata = Os.lstat(descriptor.toString());
+                StructStat metadata;
+                try { metadata = Os.lstat(descriptor.toString()); }
+                catch (ErrnoException absent) {
+                    if (absent.errno != OsConstants.ENOENT) throw absent;
+                    throw new PayloadRequiredException("环境中的桌面端需要更新。", absent);
+                }
                 if (!OsConstants.S_ISREG(metadata.st_mode) || metadata.st_uid != uid
                         || metadata.st_size > 8192 || (metadata.st_mode & 0022) != 0)
                     throw new IOException("Invalid environment desktop descriptor");
                 JSONObject environment = new JSONObject(Files.readString(descriptor, StandardCharsets.UTF_8));
                 for (String key : new String[]{"schema", "version", "architecture", "sha256"})
                     if (!manifest.getString(key).equals(environment.getString(key)))
-                        throw new IOException("环境中的桌面版本与当前 APK 不兼容，请下载配套环境包。");
+                        throw new PayloadRequiredException("环境中的桌面版本与当前 APK 不兼容，请下载配套环境包。");
                 Path bundled = root.resolve("usr/lib/chatgpt");
                 requireClient(bundled, uid);
                 return "/usr/lib/chatgpt";
             }
             onExtract.run();
             AndroidRootfsTransaction.Posix posix = new AndroidRootfsTransaction.Posix();
+            if (imagePayload != null) {
+                requireClient(imagePayload, uid);
+                Files.move(imagePayload, destination, StandardCopyOption.ATOMIC_MOVE);
+                posix.syncDirectory(parent);
+                requireClient(destination, uid);
+                return "/" + CLIENTS + "/" + name;
+            }
             Path stage = Files.createTempDirectory(parent, ".incoming-",
                     PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rwx------")));
             try (InputStream input = assets.open(ASSETS + "/client.tgz", AssetManager.ACCESS_STREAMING)) {

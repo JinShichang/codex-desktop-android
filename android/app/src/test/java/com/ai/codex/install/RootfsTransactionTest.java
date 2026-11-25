@@ -159,6 +159,58 @@ public class RootfsTransactionTest {
                 new Member("./usr/value", '0', 0644, "actual base bytes\n"),
                 new Member("./bin", '2', 0777, "usr"), new Member("./usr/alias", '1', 0644, "./usr/value"));
     }
+
+    @Test public void imagePayloadSubsetKeepsLinksButDoesNotBecomeACompleteRootfs() throws Exception {
+        Fixture fixture = standard();
+        RootfsExtractor.Prepared result = RootfsExtractor.prepareSubset(
+                fixture.open(), temporary(), fixture.spec, POSIX, Set.of("usr"));
+        assertEquals("actual base bytes\n", Files.readString(result.root.resolve("usr/value")));
+        assertTrue(Files.isSameFile(result.root.resolve("usr/value"), result.root.resolve("usr/alias")));
+        assertFalse(Files.exists(result.root.resolve("bin"), LinkOption.NOFOLLOW_LINKS));
+        assertFalse(Files.exists(result.stage.resolve("extracted.sha256")));
+        assertTrue(Files.isRegularFile(result.stage.resolve("payload-subset.sha256")));
+    }
+
+    @Test public void subsetCanSelectOneFileWithoutWritingItsSiblings() throws Exception {
+        Fixture fixture = standard();
+        Path root = RootfsExtractor.prepareSubset(fixture.open(), temporary(), fixture.spec,
+                POSIX, Set.of("usr/value")).root;
+        assertTrue(Files.isRegularFile(root.resolve("usr/value")));
+        assertFalse(Files.exists(root.resolve("usr/alias"), LinkOption.NOFOLLOW_LINKS));
+        assertFalse(Files.exists(root.resolve("bin"), LinkOption.NOFOLLOW_LINKS));
+    }
+
+    @Test public void subsetRejectsMissingPrefixesAndLinkSelections() throws Exception {
+        Fixture fixture = standard();
+        for (Set<String> selected : List.of(Set.<String>of(), Set.of("usr/val"), Set.of("bin"),
+                Set.of("usr/alias"), Set.of("../usr"), Set.of("/usr"), Set.of("."))) {
+            fails(() -> RootfsExtractor.prepareSubset(fixture.open(), temporary(), fixture.spec, POSIX, selected));
+        }
+    }
+
+    @Test public void subsetStillChecksOmittedMembersAndWholeArchiveAuthentication() throws Exception {
+        for (String name : List.of("../outside", "/outside")) {
+            Fixture fixture = archive(new Member("./", '5', 0755, ""),
+                    new Member("usr/", '5', 0755, ""), new Member("usr/value", '0', 0644, "payload"),
+                    new Member(name, '0', 0644, "invalid omitted member"));
+            fails(() -> RootfsExtractor.prepareSubset(fixture.open(), temporary(), fixture.spec, POSIX, Set.of("usr")));
+        }
+        Fixture fixture = archive(new Member("./", '5', 0755, ""),
+                new Member("usr/", '5', 0755, ""), new Member("usr/value", '0', 0644, "payload"),
+                new Member("outside", '2', 0777, "../escape"));
+        fails(() -> RootfsExtractor.prepareSubset(fixture.open(), temporary(), fixture.spec, POSIX, Set.of("usr")));
+        Fixture valid = standard();
+        RootfsExtractor.Spec wrong = new RootfsExtractor.Spec("0".repeat(64), valid.spec.compressedBytes,
+                valid.spec.payloadBytes, valid.spec.maxTarBytes, valid.spec.members);
+        fails(() -> RootfsExtractor.prepareSubset(valid.open(), temporary(), wrong, POSIX, Set.of("usr")));
+    }
+
+    @Test public void subsetRejectsHardlinksToUnselectedFiles() throws Exception {
+        Fixture fixture = archive(new Member("./", '5', 0755, ""),
+                new Member("usr/", '5', 0755, ""), new Member("base", '0', 0644, "payload"),
+                new Member("usr/alias", '1', 0644, "base"));
+        fails(() -> RootfsExtractor.prepareSubset(fixture.open(), temporary(), fixture.spec, POSIX, Set.of("usr")));
+    }
     static String hash(byte[] bytes) {
         try {
             StringBuilder value = new StringBuilder();

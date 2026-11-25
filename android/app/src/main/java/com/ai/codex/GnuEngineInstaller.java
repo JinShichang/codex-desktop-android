@@ -6,6 +6,7 @@ import android.system.Os;
 import android.system.OsConstants;
 import android.system.StructStat;
 import android.util.AtomicFile;
+import com.ai.codex.install.PayloadRequiredException;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -24,6 +25,11 @@ public final class GnuEngineInstaller {
     private static final List<String> NAMES = List.of("codex-native", "codex-code-mode-host");
 
     public static void install(Context context, File bin, File share) throws Exception {
+        install(context, bin, share, null);
+    }
+
+    /** The optional source is an unpublished, authenticated image extraction. */
+    public static void install(Context context, File bin, File share, File imagePayload) throws Exception {
         String[] assets = context.getAssets().list("gnu-engine");
         if (assets == null || !java.util.Arrays.asList(assets).contains("manifest.json")) return;
         int uid = context.getApplicationInfo().uid;
@@ -77,28 +83,39 @@ public final class GnuEngineInstaller {
         }
         if (installed) return; // No full binary reread on every desktop launch.
         boolean embedded = java.util.Arrays.asList(assets).containsAll(NAMES);
-        if (!embedded) {
+        boolean supplied = embedded || imagePayload != null;
+        if (imagePayload != null) ownedDirectory(imagePayload, uid);
+        if (!supplied) {
             // The APK authenticates the descriptor; verify the environment's
             // pair once before recording the existing files' inode identities.
             for (int index = 0; index < files.length(); index++) {
                 JSONObject item = files.getJSONObject(index);
-                verifyInstalled(new File(bin, item.getString("name")), item, uid);
+                try {
+                    verifyInstalled(new File(bin, item.getString("name")), item, uid);
+                } catch (ErrnoException absent) {
+                    if (absent.errno != OsConstants.ENOENT) throw absent;
+                    throw new PayloadRequiredException("环境中的 Codex 后端需要更新。", absent);
+                }
             }
         }
         ArrayList<File> staged = new ArrayList<>();
         try {
-            for (int index = 0; embedded && index < files.length(); index++) {
+            for (int index = 0; supplied && index < files.length(); index++) {
                 JSONObject item = files.getJSONObject(index);
                 File temporary = File.createTempFile(".gnu-engine-", ".next", bin);
                 staged.add(temporary);
-                try (InputStream input = context.getAssets().open("gnu-engine/" + item.getString("name"))) {
+                File imageFile = imagePayload == null ? null : new File(imagePayload, item.getString("name"));
+                if (!embedded) ownedFile(imageFile, uid);
+                try (InputStream input = embedded
+                        ? context.getAssets().open("gnu-engine/" + item.getString("name"))
+                        : Files.newInputStream(imageFile.toPath(), java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
                     EnginePayloadFile.stage(input, temporary.toPath(), item.getLong("bytes"), item.getString("sha256"));
                 }
                 Os.chmod(temporary.getPath(), 0700);
             }
             // Both payloads are complete before either live pathname changes.
             // No desktop/controller is started until this method commits.
-            for (int index = 0; embedded && index < files.length(); index++)
+            for (int index = 0; supplied && index < files.length(); index++)
                 Os.rename(staged.get(index).getPath(), new File(bin, NAMES.get(index)).getPath());
             JSONArray installedFiles = new JSONArray();
             for (String name : NAMES) {
@@ -132,8 +149,14 @@ public final class GnuEngineInstaller {
     private static void verifyInstalled(File file, JSONObject item, int uid) throws Exception {
         StructStat state = ownedFile(file, uid);
         if (state.st_size != item.getLong("bytes") || (state.st_mode & 0100) == 0)
-            throw new java.io.IOException("环境中的 Codex 后端不完整，请下载配套环境包。");
-        EnginePayloadFile.verify(file.toPath(), item.getLong("bytes"), item.getString("sha256"));
+            throw new PayloadRequiredException("环境中的 Codex 后端不完整，请下载配套环境包。");
+        try {
+            EnginePayloadFile.verify(file.toPath(), item.getLong("bytes"), item.getString("sha256"));
+        } catch (java.io.InterruptedIOException stopped) {
+            throw stopped;
+        } catch (java.io.IOException mismatch) {
+            throw new PayloadRequiredException("环境中的 Codex 后端需要更新。", mismatch);
+        }
     }
 
     private static StructStat ownedFile(File file, int uid) throws Exception {

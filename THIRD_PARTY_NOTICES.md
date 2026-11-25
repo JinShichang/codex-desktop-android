@@ -6,7 +6,7 @@ FoldGPT depends on independent open-source projects. The host's GPL-3.0-or-later
 | --- | --- |
 | Termux:X11 | Modified committed source in [`vendor/termux-x11`](vendor/termux-x11), based on revision `9df8b767645aa0d0a2f2576767449df55b41962f`; retain its [GPL v3 license](vendor/termux-x11/LICENSE) and nested notices |
 | PRoot | Committed source in [`vendor/proot`](vendor/proot), based on revision `7266fb3e8516535682f5a9c8f3a7e70f6506eddb`; retain its [copyright and license notices](vendor/proot/COPYING) and source headers |
-| OpenAI Codex | Native execution integration patch in [`recovery/engine`](recovery/engine), based on `rust-v0.171.0`; retain the [Apache-2.0 license](docs/licenses/codex-LICENSE) and [upstream NOTICE](docs/licenses/codex-NOTICE) |
+| OpenAI Codex | Native execution integration patch in [`recovery/engine`](recovery/engine), based on `rust-v0.172.0`; retain the [Apache-2.0 license](docs/licenses/codex-LICENSE) and [upstream NOTICE](docs/licenses/codex-NOTICE) |
 | dsh-Go phone control | Ported modules and their upstream notices are recorded under [third-party/dsh-go-phone](third-party/dsh-go-phone) |
 | Duck Detector Refactoring Live Updates | Notification presentation and permission handling adapted from [Duck Detector Refactoring](https://github.com/eltavine/Duck-Detector-Refactoring) at `ba8ea3c496a5348c977e87ce565c870a565fb5ee`; Copyright 2026 Duck Apps Contributor, [Apache-2.0 license](third-party/duck-detector-live-updates/LICENSE). Codex uses framework APIs and indeterminate agent-task progress. |
 | Apache Commons components | Installer dependencies resolved by Gradle; Apache License 2.0. Keep each artifact's LICENSE and NOTICE when preparing a binary distribution |

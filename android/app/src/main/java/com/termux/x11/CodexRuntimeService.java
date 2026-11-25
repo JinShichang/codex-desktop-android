@@ -684,6 +684,8 @@ public final class CodexRuntimeService extends Service {
         try {
             com.ai.codex.install.PhoneRuntimeInstaller.ensureInstalled(this, detail -> publishPhase("starting", detail));
             File root = new File(getFilesDir(), "debian");
+            com.ai.codex.install.EmbeddedRuntimePayloadInstaller.install(this, root,
+                    detail -> publishPhase("starting", detail));
             GuestIdentity identity = GuestIdentity.load(root.toPath());
             requireReadableFile(root, "usr/bin/env");
             requireReadableFile(root, "usr/local/bin/codex-session");

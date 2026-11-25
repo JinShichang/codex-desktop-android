@@ -23,6 +23,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.zip.GZIPInputStream;
 
@@ -90,6 +91,22 @@ public final class RootfsExtractor {
 
     /** Does not close the caller's input. No rootfs path is returned on any failure. */
     public static Prepared prepare(InputStream input, Path parent, Spec spec, Posix posix) throws IOException {
+        return prepare(input, parent, spec, posix, null);
+    }
+
+    /** Authenticates the complete image but materializes only the requested payloads.
+     * This result is not a complete rootfs and cannot resume a rootfs transaction. */
+    public static Prepared prepareSubset(InputStream input, Path parent, Spec spec, Posix posix,
+            Set<String> roots) throws IOException {
+        roots = Set.copyOf(roots);
+        if (roots.isEmpty()) throw new IOException("No image payload selected");
+        for (String name : roots)
+            if (name.isEmpty() || !name.equals(memberName(name))) throw new IOException("Invalid image payload selection");
+        return prepare(input, parent, spec, posix, roots);
+    }
+
+    private static Prepared prepare(InputStream input, Path parent, Spec spec, Posix posix,
+            Set<String> selected) throws IOException {
         parent = parent.toAbsolutePath().normalize();
         if (!parent.equals(parent.toRealPath())
                 || !Files.readAttributes(parent, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS).isDirectory()
@@ -129,10 +146,10 @@ public final class RootfsExtractor {
                 @Override public void close() { /* snapshot belongs to outer scope */ }
             }, spec);
             snapshot.position(0);
-            extract(Channels.newInputStream(snapshot), root, spec, posix);
+            extract(Channels.newInputStream(snapshot), root, spec, posix, selected);
         }
         // The receipt is durable before the caller can move into later installation states.
-        Path receipt = stage.resolve("extracted.sha256");
+        Path receipt = stage.resolve(selected == null ? "extracted.sha256" : "payload-subset.sha256");
         try (FileChannel out = FileChannel.open(receipt, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)) {
             ByteBuffer bytes = ByteBuffer.wrap((spec.sha256 + "\n" + posix.storageBackend() + "\n").getBytes(java.nio.charset.StandardCharsets.US_ASCII));
             while (bytes.hasRemaining()) out.write(bytes);
@@ -142,7 +159,20 @@ public final class RootfsExtractor {
         return new Prepared(stage, root, spec);
     }
 
-    private static void extract(InputStream compressed, Path root, Spec spec, Posix posix) throws IOException {
+    private static boolean selected(String name, Set<String> roots) {
+        if (roots == null) return true;
+        for (String prefix : roots) if (name.equals(prefix) || name.startsWith(prefix + "/")) return true;
+        return false;
+    }
+
+    private static boolean directoryNeeded(String name, Set<String> roots) {
+        if (name.isEmpty() || selected(name, roots)) return true;
+        for (String prefix : roots) if (prefix.startsWith(name + "/")) return true;
+        return false;
+    }
+
+    private static void extract(InputStream compressed, Path root, Spec spec, Posix posix,
+            Set<String> selected) throws IOException {
         Map<String, Entry> entries = new HashMap<>();
         List<Entry> links = new ArrayList<>();
         long payload = 0;
@@ -162,13 +192,16 @@ public final class RootfsExtractor {
                 Entry entry = new Entry(name, raw, type);
                 entries.put(name, entry);
                 Path target = root.resolve(name);
-                ensureDirectories(root, target.getParent());
+                boolean materialize = type == 'd' ? directoryNeeded(name, selected) : selected(name, selected);
+                if (materialize) ensureDirectories(root, target.getParent());
                 if (type == 'd') {
-                    ensureDirectories(root, target);
+                    if (materialize) ensureDirectories(root, target);
                 } else if (type == 's' || type == 'h') {
                     links.add(entry);
                 } else {
                     if (raw.getSize() > spec.payloadBytes - payload) throw new IOException("Rootfs payload exceeds trusted size");
+                    payload += raw.getSize();
+                    if (!materialize) continue; // The authenticated framing pass already checked these bytes.
                     try (FileChannel out = FileChannel.open(target, StandardOpenOption.CREATE_NEW,
                             StandardOpenOption.WRITE, LinkOption.NOFOLLOW_LINKS)) {
                         long copied = 0;
@@ -183,11 +216,15 @@ public final class RootfsExtractor {
                         posix.chmod(target, entry.mode);
                         out.force(true);
                     }
-                    payload += raw.getSize();
                 }
             }
         }
         if (entries.size() != spec.members || payload != spec.payloadBytes) throw new IOException("Rootfs manifest totals differ");
+        if (selected != null) for (String name : selected) {
+            Entry entry = entries.get(name);
+            if (entry == null || (entry.type != 'd' && entry.type != 'f'))
+                throw new IOException("Image payload is missing or is a link: " + name);
+        }
         // Require every implicit directory in the archive; a link can never replace one.
         for (Entry entry : entries.values()) {
             String parent = entry.name;
@@ -205,7 +242,10 @@ public final class RootfsExtractor {
             Entry source = entries.get(sourceName);
             if (source == null || source.type != 'f' || source.mode != entry.mode || !source.modified.equals(entry.modified))
                 throw new IOException("Invalid rootfs hardlink target");
-            hardlinkGroups.computeIfAbsent(root.resolve(sourceName), ignored -> new ArrayList<>()).add(root.resolve(entry.name));
+            if (selected(entry.name, selected)) {
+                if (!selected(sourceName, selected)) throw new IOException("Image payload hardlink leaves selection");
+                hardlinkGroups.computeIfAbsent(root.resolve(sourceName), ignored -> new ArrayList<>()).add(root.resolve(entry.name));
+            }
         }
         posix.createHardlinks(root, hardlinkGroups);
         for (Entry entry : links) {
@@ -215,6 +255,7 @@ public final class RootfsExtractor {
                 // Materialized by the declared storage backend above.
             } else {
                 validateGuestSymlink(entry.name, entry.link);
+                if (!selected(entry.name, selected)) continue;
                 Files.createSymbolicLink(target, java.nio.file.Paths.get(entry.link));
                 posix.setSymlinkModified(target, entry.modified);
             }
@@ -222,7 +263,8 @@ public final class RootfsExtractor {
         // Final modes (including sticky bits) and directory metadata are synchronized
         // bottom-up, after all entries are in place. No chown or device nodes on Android.
         List<Entry> directories = new ArrayList<>();
-        for (Entry entry : entries.values()) if (entry.type == 'd') directories.add(entry);
+        for (Entry entry : entries.values())
+            if (entry.type == 'd' && directoryNeeded(entry.name, selected)) directories.add(entry);
         directories.sort(Comparator.comparingInt((Entry entry) -> entry.name.length()).reversed());
         for (Entry entry : directories) {
             Path directory = root.resolve(entry.name);

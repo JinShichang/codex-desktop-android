@@ -20,6 +20,9 @@ public final class LiveNotifications {
     public static final long SCROLL_MS = 2000;
     public static final int PHONE_ID = 5170;
     public static final String PHONE_CHANGED = "com.ai.codex.PHONE_LIVE_CHANGED";
+    // Use the documented extra without linking the framework Builder setter,
+    // which only became public in API 36.1. Older ROMs may ignore the request.
+    private static final String REQUEST_PROMOTED_ONGOING = "android.requestPromotedOngoing";
     private LiveNotifications() { }
     public static boolean notificationsEnabled(Context context) {
         NotificationManager manager = context.getSystemService(NotificationManager.class);
@@ -27,11 +30,12 @@ public final class LiveNotifications {
     }
     /** Re-read on every update so changes in system settings take effect without a restart. */
     public static boolean canPromote(Context context) {
-        if (Build.VERSION.SDK_INT < 36 || !notificationsEnabled(context)) return false;
+        if (Build.VERSION.SDK_INT < 36) return false;
         try {
+            if (!notificationsEnabled(context)) return false;
             NotificationManager manager = context.getSystemService(NotificationManager.class);
-            return manager != null && manager.canPostPromotedNotifications();
-        } catch (RuntimeException ignored) {
+            return manager != null && Api36.canPromote(manager);
+        } catch (RuntimeException | LinkageError ignored) {
             return false;
         }
     }
@@ -46,20 +50,34 @@ public final class LiveNotifications {
     }
     public static Notification.Builder apply(Context context, Notification.Builder builder, boolean active, String line, long frame) {
         builder.setOnlyAlertOnce(true).setAutoCancel(false).setLocalOnly(true);
+        builder.getExtras().remove(REQUEST_PROMOTED_ONGOING);
         if (active) {
             builder.setOngoing(true).setCategory(Notification.CATEGORY_PROGRESS);
             builder.setStyle(new Notification.BigTextStyle().bigText(line)).setProgress(0, 0, true);
         }
-        if (Build.VERSION.SDK_INT >= 36) {
-            boolean promote = active && canPromote(context);
-            builder.setRequestPromotedOngoing(promote)
-                .setShortCriticalText(promote ? LiveNotificationText.chip(line, frame) : null);
-            if (promote) {
-                // Agent tasks have no reliable total; never invent a completion percentage.
-                builder.setStyle(new Notification.ProgressStyle().setProgressIndeterminate(true));
+        if (active && canPromote(context)) {
+            try {
+                Api36.apply(builder, line, frame);
+            } catch (RuntimeException | LinkageError ignored) {
+                // Optional Live Update APIs must never prevent a foreground
+                // service from starting, including on partial OEM backports.
+                builder.setStyle(new Notification.BigTextStyle().bigText(line)).setProgress(0, 0, true);
             }
         }
         return builder;
+    }
+    // Isolate newer framework types so older/partial ROMs can still load the
+    // ordinary notification path. Linkage failures are caught by the caller.
+    private static final class Api36 {
+        static boolean canPromote(NotificationManager manager) {
+            return manager.canPostPromotedNotifications();
+        }
+        static void apply(Notification.Builder builder, String line, long frame) {
+            builder.setShortCriticalText(LiveNotificationText.chip(line, frame));
+            // Agent tasks have no reliable total; never invent a completion percentage.
+            builder.setStyle(new Notification.ProgressStyle().setProgressIndeterminate(true));
+            builder.getExtras().putBoolean(REQUEST_PROMOTED_ONGOING, true);
+        }
     }
     /** Runtime runs in a separate process; read OS-owned state rather than a static flag. */
     public static boolean phoneIsActive(Context context) {
