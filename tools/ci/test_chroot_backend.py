@@ -243,6 +243,13 @@ class BuildTypeTest(unittest.TestCase):
         # It still has to be signed, or the APK cannot be installed.
         self.assertIn("signingConfig signingConfigs.debug", self.build)
 
+    def test_target_sdk_is_a_build_input(self):
+        # A targetSdk above the platform's API starts the process outside the
+        # usual sandbox (Seccomp 0 instead of 2), which the executor refuses.
+        self.assertIn("codexTargetSdk", self.build)
+        self.assertIn("TARGET_SDK", self.builder)
+        self.assertIn("codexTargetSdk=", self.builder)
+
     def test_coinstalled_build_assembles_release(self):
         self.assertIn("assembleRelease", self.builder)
         self.assertNotIn("assembleDebug", self.builder)

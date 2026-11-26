@@ -7,7 +7,12 @@ android {
     defaultConfig {
         applicationId providers.gradleProperty('codexApplicationId').getOrElse('com.ai.codex')
         minSdk 30
-        targetSdk 37
+        // The co-installed build targets the device's own API (Android 15 / 35).
+        // A targetSdk above what the platform supports makes the system start the
+        // process outside the usual app sandbox: on this device the packaged app
+        // reported Seccomp 0 while a normal third-party app reported 2, and the
+        // native executor refuses to run without the zygote seccomp filter.
+        targetSdk providers.gradleProperty('codexTargetSdk').map { it.toInteger() }.getOrElse(37)
         versionCode providers.gradleProperty('codexVersionCode').map { it.toInteger() }.getOrElse(60)
         versionName providers.gradleProperty('codexVersionName').getOrElse('0.2.0-dev-ime-refresh')
         testInstrumentationRunner 'com.ai.codex.recovery.HardCrashInstrumentation'

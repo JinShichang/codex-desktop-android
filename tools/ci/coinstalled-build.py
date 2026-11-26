@@ -42,6 +42,10 @@ NDK_VERSION = "29.0.14206865"
 CMAKE_VERSION = "3.22.1"
 BUILD_TOOLS = "36.0.0"
 SDK_PLATFORM = "android-37.0"
+# The installed platform's own API level decides whether the system applies the
+# zygote seccomp filter; targeting above it disables the filter, and the packaged
+# native executor requires it.
+TARGET_SDK = "35"
 RUNTIME_LIBS = (
     "libproot.so", "libproot-loader.so", "libproot-loader32.so",
     "libtalloc.so", "libandroid-shmem.so",
@@ -304,6 +308,9 @@ def build():
         "-PcodexVersionCode=9001",
         "-PcodexVersionName=0.2.0-dev-coinstall",
         f"-PcodexApplicationId={state['packageId']}",
+        # Target the platform the test device actually runs (Android 15 / API 35).
+        # A higher value starts the process without the zygote seccomp filter.
+        f"-PcodexTargetSdk={TARGET_SDK}",
         f"-PcodexRuntimeJni={state_payload['runtimeJni']}",
         f"-PcodexExecutorJni={state_payload['executorJni']}",
         # The transport libraries come from the published APK: the module rebuilds
