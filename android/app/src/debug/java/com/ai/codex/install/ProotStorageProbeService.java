@@ -128,6 +128,7 @@ public final class ProotStorageProbeService extends Service {
         env.put("PROOT_LOADER",nativeDir.resolve("libproot-loader.so").toString());
         env.put("PROOT_LOADER_32",nativeDir.resolve("libproot-loader32.so").toString());
         env.put("PROOT_TMP_DIR",scratch.toString()); env.put("TMPDIR",scratch.toString());
+        ProotEnvironment.disableSeccompAcceleration(env);
         env.remove("PROOT_L2S_DIR"); env.remove("LD_PRELOAD");
         Path output=work.resolve(name+".log");
         child=builder.redirectErrorStream(true).redirectOutput(output.toFile()).start();
@@ -161,6 +162,7 @@ public final class ProotStorageProbeService extends Service {
         env.put("PROOT_LOADER",nativeDir.resolve("libproot-loader.so").toString());
         env.put("PROOT_LOADER_32",nativeDir.resolve("libproot-loader32.so").toString());
         env.put("PROOT_TMP_DIR",work.resolve("scratch").toString()); env.put("TMPDIR",work.resolve("scratch").toString());
+        ProotEnvironment.disableSeccompAcceleration(env);
         Path output=work.resolve("cancellation.log");
         child=builder.redirectErrorStream(true).redirectOutput(output.toFile()).start();
         try {

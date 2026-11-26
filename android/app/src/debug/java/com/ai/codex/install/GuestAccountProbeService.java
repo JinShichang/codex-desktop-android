@@ -93,6 +93,7 @@ public final class GuestAccountProbeService extends Service {
         env.put("LD_LIBRARY_PATH",aliases+":"+nativeDir); env.put("PROOT_LOADER",nativeDir.resolve("libproot-loader.so").toString());
         env.put("PROOT_LOADER_32",nativeDir.resolve("libproot-loader32.so").toString());
         env.put("PROOT_TMP_DIR",scratch.toString()); env.put("TMPDIR",scratch.toString());
+        ProotEnvironment.disableSeccompAcceleration(env);
         Path log=base.resolve("guest.log");
         child=builder.redirectErrorStream(true).redirectOutput(log.toFile()).start(); child.getOutputStream().close();
         if(!child.waitFor(30,TimeUnit.SECONDS)) throw new IOException("Guest identity execution timed out");

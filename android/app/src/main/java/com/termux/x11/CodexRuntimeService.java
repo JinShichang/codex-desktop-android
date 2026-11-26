@@ -786,6 +786,11 @@ public final class CodexRuntimeService extends Service {
             builder.environment().put("PROOT_LOADER", getApplicationInfo().nativeLibraryDir + "/libproot-loader.so");
             builder.environment().put("PROOT_LOADER_32", getApplicationInfo().nativeLibraryDir + "/libproot-loader32.so");
             builder.environment().put("PROOT_TMP_DIR", temp.getAbsolutePath());
+            // The desktop session execs bash, codex-session and every project
+            // command through PRoot. Its SECCOMP_RET_TRACE acceleration breaks
+            // the second guest exec with SIGSEGV on current Android kernels, so
+            // keep the portable PTRACE_SYSCALL path the GNU executor also pins.
+            com.ai.codex.install.ProotEnvironment.disableSeccompAcceleration(builder.environment());
             // Os.setenv above configures Xlorie in this process. Give the child
             // an explicit private directory too; ProcessBuilder owns its env map.
             builder.environment().put("TMPDIR", temp.getAbsolutePath());

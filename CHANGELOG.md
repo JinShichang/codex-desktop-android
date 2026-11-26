@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-11-26 — 修复 PRoot 嵌套 exec 崩溃导致的启动失败
+
+- 所有 Android 侧 PRoot 启动点（keyring 准备、包安装、运行环境冒烟检查、桌面会话，以及 debug 探针）统一设置 `PROOT_NO_SECCOMP=1`，改走 `PTRACE_SYSCALL` 路径。此前只有 GNU 执行器设置了该项，app 内启动均遗漏；在 zygote seccomp 过滤器下，guest 的第二次 `execve` 会让 tracee 以 `signal 11` 退出，调用方只能得到 `Private provisioning process failed: exit=255 stage=UNKNOWN code=NO_RECOGNIZED_DIAGNOSTIC`。
+- 新增 `tools/ci/test_proot_launch_environment.py`，检查每个 PRoot 启动点都关闭加速，并确认该变量不会进入 guest 环境。
+
 ## 2026-11-15 — IME stability and desktop high refresh
 
 - Keep a retained editor open through transient Electron visibility/context changes; validate passive hide requests using focus metadata and reject stale replies after a newer user gesture. Outside taps and native Activity pause still dismiss normally.

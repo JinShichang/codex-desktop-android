@@ -12,6 +12,31 @@
 
 [后端与环境架构](architecture.md) · [普通 UID 诊断工具](../tools/phone-probe/README.md) · [手机操控记录](phone-mcp-dshgo-port.md)
 
+## PRoot 嵌套 exec 与 seccomp 加速
+
+PRoot 可用 `SECCOMP_RET_TRACE` 加速路径翻译，依赖 `PTRACE_EVENT_SECCOMP` 事件。在当前
+Android 内核上该加速路径不可靠：guest **第二次** `execve` 之后 tracee 以 `SIGSEGV` 结束，
+调用方只会看到下面这一行，既没有 Python 栈也没有 PRoot 自身诊断：
+
+```
+proot info: vpid 1: terminated with signal 11
+```
+
+已在一加 13（Android 15、内核 5.15.149）上用品包里同一套库复现，既发生在带 seccomp
+过滤器的应用进程中，也发生在同一挂载命名空间内**没有**继承过滤器的 root shell 中，
+因此触发点是随包引入的加速路径本身，而不只是应用进程继承的 zygote 过滤器。
+
+单次直接 `execve` 仍然正常，因此该问题只在 guest 需要二次 exec 时出现——keyring 准备
+（`env` 再 `python3`）、包安装、运行环境冒烟检查和桌面会话都属于这一类。表现为启动时
+停留在准备阶段并累计失败次数，随后运行意图转入 `suspended`，报错为
+`Private provisioning process failed: exit=255 stage=UNKNOWN code=NO_RECOGNIZED_DIAGNOSTIC`。
+
+所有 PRoot 启动点现在都通过 `ProotEnvironment.disableSeccompAcceleration` 固定设置
+`PROOT_NO_SECCOMP=1`，改用普通 `PTRACE_SYSCALL` 路径；GNU 执行器此前已在
+`tools/executor/gnu-runtime/gnu-managed-runtime.h` 中固定同一取值。
+`tools/ci/test_proot_launch_environment.py` 阻止新增启动点遗漏该设置。该变量只由 PRoot
+读取，不会进入 guest 环境（guest 环境始终由 `env -i` 显式给出），也不改变任何沙箱或权限边界。
+
 ## 设备验收
 
 ### v76 至 v80 本地测试版
