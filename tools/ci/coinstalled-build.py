@@ -128,6 +128,11 @@ def extract_payload(apk: Path):
         (PAYLOAD / "runtime-five" / "arm64-v8a" / name).write_bytes(libraries[name])
     for name in needed:
         (PAYLOAD / "executor-jni" / "arm64-v8a" / name).write_bytes(libraries[name])
+    # libXlorie.so is produced by the :lorie CMake project, which the co-installed
+    # build does not rebuild. Reuse the published bytes so the app can load it.
+    if "libXlorie.so" not in libraries:
+        raise SystemExit("Base APK lacks libXlorie.so")
+    (PAYLOAD / "runtime-five" / "arm64-v8a" / "libXlorie.so").write_bytes(libraries["libXlorie.so"])
     log("recover", json.dumps({"assets": assets, "libraries": len(libraries),
                                "executorJni": len(needed)}, indent=2))
     return deployment
@@ -272,15 +277,14 @@ def build():
         f"-PcodexExecutorJni={state_payload['executorJni']}",
         f"-PcodexExecutorAssets={state_payload['executorAssets']}",
         "-PcodexRequireExecutor=true",
-        # The co-installed build carries only the assets recovered from the
-        # public APK, so the split/debug-only staging inputs stay absent.
-        f"-PcodexDebugJni={PAYLOAD / 'debug-jni-empty'}",
+        # Deliberately do NOT override codexDebugJni: the :lorie and :app
+        # debug source sets must keep their default jniLibs locations, otherwise
+        # Gradle skips the CMake output and libXlorie.so is never packaged.
         f"-PcodexDebugAssets={PAYLOAD / 'debug-assets-empty'}",
     ]
     # Gradle records these as inputs; a missing directory fails the task graph,
     # so keep an explicit (empty) staging tree for the debug-only sources this
     # build does not carry.
-    (PAYLOAD / "debug-jni-empty" / "arm64-v8a").mkdir(parents=True, exist_ok=True)
     (PAYLOAD / "debug-assets-empty").mkdir(parents=True, exist_ok=True)
     run("build", command, env=environment)
     produced = list((ROOT / "android" / "app" / "build" / "outputs" / "apk" / "debug").glob("*.apk"))

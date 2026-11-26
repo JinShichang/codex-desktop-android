@@ -436,14 +436,18 @@ androidComponents.onVariants(androidComponents.selector().withBuildType('debug')
 tasks.register('verifyRuntimeLibraries') {
     doLast {
         def runtime = file(providers.gradleProperty('codexRuntimeJni').getOrElse('../native/runtime'))
-        def allowed = ['libproot.so', 'libproot-loader.so', 'libproot-loader32.so',
-                       'libtalloc.so', 'libandroid-shmem.so']
+        def required = ['libproot.so', 'libproot-loader.so', 'libproot-loader32.so',
+                        'libtalloc.so', 'libandroid-shmem.so']
             .collect { 'arm64-v8a/' + it }.toSet()
         def actual = fileTree(runtime).files.collect {
             runtime.toPath().relativize(it.toPath()).toString().replace('\\', '/')
         }.toSet()
-        if (actual != allowed) {
-            throw new GradleException("Native runtime inputs differ: missing=${allowed - actual}, unexpected=${actual - allowed}. Diagnostics belong in native/debug.")
+        // The five PRoot libraries are mandatory. A build that does not rebuild
+        // the :lorie CMake project may stage libXlorie.so here as well, so it is
+        // the only admitted extra input.
+        def optional = ['arm64-v8a/libXlorie.so'] as Set
+        if (!actual.containsAll(required) || !(actual - required).every { it in optional }) {
+            throw new GradleException("Native runtime inputs differ: missing=${required - actual}, unexpected=${actual - required - optional}. Diagnostics belong in native/debug.")
         }
     }
 }
