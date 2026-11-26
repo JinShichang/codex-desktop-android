@@ -252,7 +252,64 @@ class BuildTypeTest(unittest.TestCase):
 
     def test_coinstalled_build_assembles_release(self):
         self.assertIn("assembleRelease", self.builder)
-        self.assertNotIn("assembleDebug", self.builder)
+        # assembleDebug may appear only for the :shizukuTransport module, which has
+        # no release variant of its own; the application APK must be a release build.
+        for line in self.builder.splitlines():
+            if "assembleDebug" in line:
+                self.assertIn(":shizukuTransport:", line, line.strip())
+
+
+class SeccompToleranceTest(unittest.TestCase):
+    """Admission accepts a KernelSU-unfiltered sandbox, and only that.
+
+    KernelSU strips the zygote seccomp filter from authorised applications so that
+    privilege escalation can work, and admission required PR_GET_SECCOMP == 2.
+    Measured on the target device: com.tencent.mm (not authorised) reported 2, while
+    com.ai.codex.dev, app.operit and com.droidspaces.app (all authorised) reported 0.
+    The guest runtime needs the same authorisation, so the two requirements are
+    mutually exclusive.
+
+    This build accepts 0 as well, and nothing else: every identity, gid, NNP and
+    capability condition is still enforced.
+    """
+
+    def setUp(self):
+        self.c = (ROOT / "tools/executor/shizuku-service/transport/src/main/cpp"
+                  / "app-spawn.c").read_text(encoding="utf-8")
+
+    def test_seccomp_accepts_filtered_and_unfiltered(self):
+        self.assertIn("tolerated_seccomp", self.c)
+        self.assertIn("mode == 2 || mode == 0", self.c)
+        # Anything other than 0 or 2 must still be rejected.
+        self.assertNotIn("prctl(PR_GET_SECCOMP, 0, 0, 0, 0) == 0", self.c)
+
+    def test_other_admission_conditions_are_unchanged(self):
+        for condition in ("real != application_uid", "effective != real", "saved != real",
+                          "greal != application_uid", "PR_GET_NO_NEW_PRIVS"):
+            self.assertIn(condition, self.c)
+        self.assertIn("capabilities[i].effective", self.c)
+
+    def test_weakening_is_documented(self):
+        self.assertIn("COM_AI_CODEX_ALLOW_UNFILTERED_SECCOMP", self.c)
+        # The comment must state that this is a deliberate deviation.
+        self.assertIn("must not be presented as equivalent", self.c)
+
+
+class AppTransportSourceBuildTest(unittest.TestCase):
+    """The app transport must be compiled here, not reused from a published APK."""
+
+    def setUp(self):
+        self.cmake = (ROOT / "tools/executor/shizuku-service/transport/src/main/cpp"
+                      / "CMakeLists.txt").read_text(encoding="utf-8")
+        self.gradle = (ROOT / "tools/executor/shizuku-service/transport/build.gradle").read_text(encoding="utf-8")
+        self.builder = (ROOT / "tools/ci/coinstalled-build.py").read_text(encoding="utf-8")
+
+    def test_option_is_enabled(self):
+        self.assertIn("CODEX_BUILD_APP_TRANSPORT", self.cmake)
+        self.assertIn("CODEX_BUILD_APP_TRANSPORT=ON", self.gradle)
+
+    def test_published_copy_is_not_reused(self):
+        self.assertIn('if name == "libcodex_app_transport.so"', self.builder)
 
 
 if __name__ == "__main__":

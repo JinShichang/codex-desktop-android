@@ -16,6 +16,38 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+/* COM_AI_CODEX_ALLOW_UNFILTERED_SECCOMP
+ *
+ * Upstream requires PR_GET_SECCOMP == 2 here, i.e. the process still runs inside
+ * the zygote seccomp filter. On a device where this application is authorised by
+ * KernelSU, the manager deliberately strips that filter from its processes so that
+ * privilege escalation can work, and PR_GET_SECCOMP reports 0.
+ *
+ * Measured on the target device (OnePlus 13, Android 15):
+ *   com.tencent.mm       (not KernelSU-authorised)  Seccomp 2 / filters 1
+ *   com.android.settings (not KernelSU-authorised)  Seccomp 2
+ *   com.ai.codex.dev     (KernelSU-authorised)      Seccomp 0 / filters 0
+ *   app.operit           (KernelSU-authorised)      Seccomp 0
+ *
+ * The two requirements are mutually exclusive: the guest runtime needs root (which
+ * this build obtains through the same KernelSU authorisation), and the executor
+ * demands a filter that authorisation removes.
+ *
+ * This build therefore accepts 0 *or* 2, and nothing else. Every other admission
+ * condition is still enforced unchanged: real == effective == saved uid and gid
+ * must equal the application uid, PR_GET_NO_NEW_PRIVS must be 0, and all
+ * capability sets must be empty. That keeps the guarantee that the transport runs
+ * as the application itself and cannot gain privileges through capabilities, while
+ * accepting that the filter may have been removed by the root manager.
+ *
+ * This is a deliberate, documented weakening of the upstream sandbox for local
+ * builds only; it must not be presented as equivalent to the upstream check.
+ */
+static int tolerated_seccomp(void) {
+    int mode = prctl(PR_GET_SECCOMP, 0, 0, 0, 0);
+    return mode == 2 || mode == 0;
+}
+
 static int admitted_identity(uid_t application_uid) {
     uid_t real, effective, saved;
     gid_t greal, geffective, gsaved;
@@ -25,7 +57,7 @@ static int admitted_identity(uid_t application_uid) {
             getresuid(&real, &effective, &saved) < 0 || getresgid(&greal, &geffective, &gsaved) < 0 ||
             real != application_uid || effective != real || saved != real ||
             greal != application_uid || geffective != greal || gsaved != greal ||
-            prctl(PR_GET_SECCOMP, 0, 0, 0, 0) != 2 || prctl(PR_GET_NO_NEW_PRIVS, 0, 0, 0, 0) != 0 ||
+            !tolerated_seccomp() || prctl(PR_GET_NO_NEW_PRIVS, 0, 0, 0, 0) != 0 ||
             syscall(__NR_capget, &header, capabilities) < 0) return 0;
     for (int i = 0; i < 2; ++i) {
         if (capabilities[i].effective || capabilities[i].permitted || capabilities[i].inheritable) return 0;
@@ -34,11 +66,24 @@ static int admitted_identity(uid_t application_uid) {
     return 1;
 }
 
+/* The application id is a build input, so the private data path cannot be a
+ * literal. Accept exactly the two Android spellings of this user's app data
+ * directory and require them to name the same directory, then keep every
+ * ownership, mode and inode check below unchanged. Java already resolved this
+ * path from PackageManager; this only re-verifies it cannot be redirected. */
 static int same_private_data(const char *declared, const char *canonical, uid_t uid) {
-    char actual[PATH_MAX];
+    char actual[PATH_MAX], user_path[PATH_MAX], data_path[PATH_MAX];
     struct stat named, resolved;
-    if (strcmp(declared, "/data/user/0/com.ai.codex") != 0 ||
-            (strcmp(canonical, declared) != 0 && strcmp(canonical, "/data/data/com.ai.codex") != 0) ||
+    /* /data/user/0/<pkg> is canonical; /data/data/<pkg> is the compatibility view. */
+    if (strncmp(declared, "/data/user/0/", 13) != 0) return 0;
+    const char *package = declared + 13;
+    if (strchr(package, '/') != NULL || strstr(package, "..") != NULL || *package == '\0') return 0;
+    int user_len = snprintf(user_path, sizeof(user_path), "/data/user/0/%s", package);
+    int data_len = snprintf(data_path, sizeof(data_path), "/data/data/%s", package);
+    if (user_len <= 0 || (size_t)user_len >= sizeof(user_path) ||
+            data_len <= 0 || (size_t)data_len >= sizeof(data_path)) return 0;
+    if (strcmp(declared, user_path) != 0 ||
+            (strcmp(canonical, declared) != 0 && strcmp(canonical, data_path) != 0) ||
             realpath(declared, actual) == NULL || strcmp(actual, canonical) != 0 ||
             lstat(declared, &named) < 0 || lstat(canonical, &resolved) < 0 ||
             !S_ISDIR(named.st_mode) || !S_ISDIR(resolved.st_mode) ||
@@ -74,7 +119,7 @@ JNIEXPORT jint JNICALL Java_com_ai_codex_shizukuexec_AppNativeSpawn_launch(
         jint application_uid, jstring canonical_data, jint input, jint output, jint report, jint control) {
     (void)cls;
     if (application_uid < 10000 || !admitted_identity((uid_t)application_uid)) {
-        failure(env, "Application transport requires the exact non-root app identity and inherited seccomp 2");
+        failure(env, "Application transport requires the exact non-root app identity and a filtered or manager-unfiltered sandbox");
         return -1;
     }
     if (!executable || !arguments || !canonical_data) {

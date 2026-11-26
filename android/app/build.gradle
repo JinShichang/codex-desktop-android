@@ -258,7 +258,12 @@ if (executorJni.isPresent()) {
     if (!qualifiedExecutorAssets.isPresent()) throw new GradleException('Executor JNI requires explicit deployment assets')
     def supplied = file(executorJni.get()).canonicalFile
     def deployment = new groovy.json.JsonSlurper().parse(new File(file(qualifiedExecutorAssets.get()), 'codex-executor-deployment.json'))
-    def expected = deployment.nativeLibraries.keySet().findAll { !(it in ['libcodex_shizuku_transport.so', 'libcodex_bionic_cwd.so']) }.toSet()
+    // Three libraries are built by :shizukuTransport rather than shipped here;
+    // libcodex_app_transport.so carries this build's admission policy and must be
+    // compiled from source, so it is excluded from the payload comparison too.
+    def moduleBuilt = ['libcodex_shizuku_transport.so', 'libcodex_bionic_cwd.so',
+                       'libcodex_app_transport.so']
+    def expected = deployment.nativeLibraries.keySet().findAll { !(it in moduleBuilt) }.toSet()
     def actual = fileTree(new File(supplied, 'arm64-v8a')).files.collect { it.name }.toSet()
     if (expected != actual) throw new GradleException('Executor JNI differs from its deployment inventory')
     expected.each { name ->

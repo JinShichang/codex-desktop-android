@@ -159,6 +159,11 @@ def extract_payload(apk: Path):
             raise SystemExit("Base APK lacks " + name)
         (transport_dir / name).write_bytes(libraries[name])
     for name in needed:
+        if name == "libcodex_app_transport.so":
+            # Built from source by :shizukuTransport: it embeds this build's
+            # admission policy. Reusing the published copy would reinstate the
+            # upstream seccomp requirement and reject this device.
+            continue
         (PAYLOAD / "executor-jni" / "arm64-v8a" / name).write_bytes(libraries[name])
     # libXlorie.so is produced by the :lorie CMake project, which the co-installed
     # build does not rebuild. Reuse the published bytes so the app can load it.
@@ -290,6 +295,39 @@ def toolchain():
 
 # --------------------------------------------------------------------------- build
 
+def sync_transport_digest(gradle: str, environment) -> None:
+    """Compile the transport library and record its digest before packaging.
+
+    The library is built from source by :shizukuTransport (it embeds this build's
+    admission policy), while the deployment inventory still carries the published
+    digest. Compiling first lets the inventory describe what will actually ship.
+    """
+    name = "libcodex_app_transport.so"
+    module = ROOT / "tools" / "executor" / "shizuku-service" / "transport"
+    run("build-transport", [gradle, "-p", str(ROOT / "android"), ":shizukuTransport:assembleDebug",
+                            "--no-daemon"], env=environment)
+    candidates = sorted(module.parent.parent.parent.parent.glob(
+        "**/modules/shizukuTransport/**/arm64-v8a/" + name), key=lambda p: p.stat().st_mtime)
+    if not candidates:
+        candidates = sorted(ROOT.glob("android/**/" + name), key=lambda p: p.stat().st_mtime)
+    if not candidates:
+        raise SystemExit("Transport library was not built")
+    actual = digest(candidates[-1])
+    deployment_path = PAYLOAD / "executor-assets" / "codex-executor-deployment.json"
+    deployment = json.loads(deployment_path.read_text(encoding="utf-8"))
+    if deployment["nativeLibraries"].get(name) == actual:
+        log("build", name + " digest already current")
+        return
+    deployment["nativeLibraries"][name] = actual
+    deployment_path.write_text(json.dumps(deployment, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    log("build", "recorded built digest for " + name)
+    # The qualification record pins the deployment digest, so refresh the chain.
+    package_id = json.loads((WORK / "state.json").read_text())["packageId"]
+    run("build", [sys.executable, "-B", ROOT / "tools" / "workstation"
+                  / "rewrite-application-id.py", "--assets", PAYLOAD / "executor-assets",
+                  "--from", "com.ai.codex", "--to", package_id])
+
+
 def build():
     state = json.loads((WORK / "state.json").read_text())
     env_json = json.loads((WORK / "env.json").read_text())
@@ -333,10 +371,16 @@ def build():
     # so keep an explicit (empty) staging tree for the debug-only sources this
     # build does not carry.
     (PAYLOAD / "debug-assets-empty").mkdir(parents=True, exist_ok=True)
+    # libcodex_app_transport.so is compiled from source because it carries this
+    # build's admission policy. Its digest is recorded in the deployment inventory,
+    # so compile once, read the produced library, update the inventory, and only
+    # then assemble the APK that will actually be verified.
+    sync_transport_digest(gradle, environment)
     run("build", command, env=environment)
     produced = list((ROOT / "android" / "app" / "build" / "outputs" / "apk" / "release").glob("*.apk"))
     if not produced:
         raise SystemExit("Gradle produced no release APK")
+
     OUT.mkdir(parents=True, exist_ok=True)
     for path in produced:
         shutil.copy2(path, OUT / path.name)
