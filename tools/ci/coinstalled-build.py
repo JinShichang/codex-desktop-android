@@ -10,7 +10,7 @@ key. The result installs beside the existing app; it cannot update it.
 Stages
     recover    verify the base APK, extract the payload, rewrite the app id
     toolchain  install Android SDK platform/build-tools/NDK/CMake and Gradle
-    build      run the Gradle assembleDebug with explicit payload inputs
+    build      run the Gradle assembleRelease with explicit payload inputs
     verify     read the produced APK back: app id, signature, payload wiring
 
 Every stage writes its own log under ``work/coinstall/logs`` and refuses to
@@ -300,7 +300,7 @@ def build():
                        GRADLE_USER_HOME=str(WORK / "gradle-home"),
                        JAVA_HOME=os.environ["JAVA_HOME"])
     command = [
-        gradle, "-p", str(ROOT / "android"), "assembleDebug", "--no-daemon", "--stacktrace",
+        gradle, "-p", str(ROOT / "android"), "assembleRelease", "--no-daemon", "--stacktrace",
         "-PcodexVersionCode=9001",
         "-PcodexVersionName=0.2.0-dev-coinstall",
         f"-PcodexApplicationId={state['packageId']}",
@@ -327,9 +327,9 @@ def build():
     # build does not carry.
     (PAYLOAD / "debug-assets-empty").mkdir(parents=True, exist_ok=True)
     run("build", command, env=environment)
-    produced = list((ROOT / "android" / "app" / "build" / "outputs" / "apk" / "debug").glob("*.apk"))
+    produced = list((ROOT / "android" / "app" / "build" / "outputs" / "apk" / "release").glob("*.apk"))
     if not produced:
-        raise SystemExit("Gradle produced no debug APK")
+        raise SystemExit("Gradle produced no release APK")
     OUT.mkdir(parents=True, exist_ok=True)
     for path in produced:
         shutil.copy2(path, OUT / path.name)

@@ -223,5 +223,30 @@ class RewriteQualificationTest(unittest.TestCase):
         self.assertIn('entry["sha256"] = actual', self.text)
 
 
+class BuildTypeTest(unittest.TestCase):
+    """The packaged native executor cannot run inside a debuggable app.
+
+    Android starts debuggable apps without the zygote seccomp filter, and
+    admission requires PR_GET_SECCOMP == 2. A debug APK therefore failed with
+    "Application transport requires the exact non-root app identity and inherited
+    seccomp 2". Verified on device: com.android.settings reported Seccomp 2 while
+    the debug build reported 0.
+    """
+
+    def setUp(self):
+        self.build = (ROOT / "android/app/build.gradle").read_text(encoding="utf-8")
+        self.builder = (ROOT / "tools/ci/coinstalled-build.py").read_text(encoding="utf-8")
+
+    def test_release_variant_exists_and_is_not_debuggable(self):
+        self.assertIn("release {", self.build)
+        self.assertIn("debuggable false", self.build)
+        # It still has to be signed, or the APK cannot be installed.
+        self.assertIn("signingConfig signingConfigs.debug", self.build)
+
+    def test_coinstalled_build_assembles_release(self):
+        self.assertIn("assembleRelease", self.builder)
+        self.assertNotIn("assembleDebug", self.builder)
+
+
 if __name__ == "__main__":
     unittest.main()

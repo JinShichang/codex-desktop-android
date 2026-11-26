@@ -22,7 +22,19 @@ android {
     sourceSets.main.jniLibs.srcDirs = [providers.gradleProperty('codexRuntimeJni').getOrElse('../native/runtime')]
     sourceSets.debug.jniLibs.srcDirs = [providers.gradleProperty('codexDebugJni').getOrElse('../native/debug')]
     externalNativeBuild { cmake { path '../install-native/CMakeLists.txt'; version '3.22.1' } }
-    buildTypes { debug { debuggable true } }
+    // A debuggable build cannot host the packaged native executor: Android starts
+    // debuggable apps without the zygote seccomp filter, and admission requires
+    // PR_GET_SECCOMP == 2. A release build keeps the normal app sandbox, so it can.
+    buildTypes {
+        debug { debuggable true }
+        release {
+            debuggable false
+            minifyEnabled false
+            // Signed with the same local key as debug; this is a test build, not
+            // a published artifact.
+            signingConfig signingConfigs.debug
+        }
+    }
     buildFeatures {
         aidl true
         // The application id is a build input (see codexApplicationId); code
