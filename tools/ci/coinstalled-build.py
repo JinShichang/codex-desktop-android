@@ -110,9 +110,22 @@ def extract_payload(apk: Path):
             if name.startswith("lib/arm64-v8a/") and name.endswith(".so"):
                 libraries[Path(name).name] = archive.read(name)
         assets = 0
+        # The complete first-install image lives under phone-runtime/ and is
+        # handed to Gradle as its own input directory, not as an app asset.
+        image = PAYLOAD / "phone-image" / "phone-runtime"
+        image.mkdir(parents=True, exist_ok=True)
+        image_members = 0
         skip = ("assets/phone-runtime/", "assets/desktop-client/", "assets/gnu-engine/")
         for name in names:
-            if not name.startswith("assets/") or name.endswith("/") or name.startswith(skip):
+            if not name.startswith("assets/") or name.endswith("/"):
+                continue
+            if name.startswith("assets/phone-runtime/"):
+                target = PAYLOAD / "phone-image" / name[len("assets/"):]
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(archive.read(name))
+                image_members += 1
+                continue
+            if name.startswith(skip):
                 continue
             relative = name[len("assets/"):]
             target = PAYLOAD / "executor-assets" / relative
@@ -134,7 +147,10 @@ def extract_payload(apk: Path):
         raise SystemExit("Base APK lacks libXlorie.so")
     (PAYLOAD / "runtime-five" / "arm64-v8a" / "libXlorie.so").write_bytes(libraries["libXlorie.so"])
     log("recover", json.dumps({"assets": assets, "libraries": len(libraries),
-                               "executorJni": len(needed)}, indent=2))
+                               "executorJni": len(needed), "imageFiles": image_members},
+                              indent=2))
+    if image_members == 0:
+        raise SystemExit("Base APK carries no first-install image")
     return deployment
 
 
@@ -277,6 +293,10 @@ def build():
         f"-PcodexExecutorJni={state_payload['executorJni']}",
         f"-PcodexExecutorAssets={state_payload['executorAssets']}",
         "-PcodexRequireExecutor=true",
+        # Embed the complete first-install image so the co-installed app can
+        # prepare its own Linux environment without a shared-storage download.
+        f"-PcodexPhoneImageAssets={PAYLOAD / 'phone-image'}",
+        "-PcodexEmbedPhoneImage=true",
         # Deliberately do NOT override codexDebugJni: the :lorie and :app
         # debug source sets must keep their default jniLibs locations, otherwise
         # Gradle skips the CMake output and libXlorie.so is never packaged.
