@@ -1,5 +1,6 @@
 package com.ai.codex.install;
 
+import com.ai.codex.CodexChrootChannel;
 import com.ai.codex.InputStreams;
 import android.content.Context;
 import android.net.ConnectivityManager;
@@ -137,7 +138,33 @@ public final class PhoneRuntimeInstaller {
         } catch (android.system.ErrnoException error) { throw new IOException("Cannot provision guest machine identity", error); }
         Files.writeString(file, value, StandardCharsets.US_ASCII, StandardOpenOption.TRUNCATE_EXISTING, LinkOption.NOFOLLOW_LINKS);
     }
+    /** Verify the prepared guest actually runs before it is activated.
+     *
+     * <p>Chroot is preferred for the same reason keyring preparation uses it:
+     * on this class of device the guest only behaves correctly without PRoot's
+     * ptrace emulation. PRoot stays as the fallback for unrooted devices.
+     */
     private static void smoke(Context context, Path root, GuestIdentity account) throws IOException {
+        if (CodexChrootChannel.isAvailable(context)) {
+            List<String> command = List.of("/bin/bash", "-c",
+                "set -eu; python3 -B -c 'import secretstorage, websockets; print(\"CODEX_RUNTIME_SMOKE\")'");
+            String text;
+            try {
+                text = CodexChrootChannel.run(context, new java.io.File(root.toString()),
+                    account.uid, account.home, TimeUnit.SECONDS.toMillis(90), List.of(), command);
+            } catch (IOException already) {
+                throw already;
+            } catch (Exception failure) {
+                throw new IOException("本机运行环境验证失败：" + failure.getMessage(), failure);
+            }
+            if (!text.contains("CODEX_RUNTIME_SMOKE"))
+                throw new IOException("本机运行环境验证失败，诊断记录：" + text);
+            return;
+        }
+        smokeWithProot(context, root, account);
+    }
+
+    private static void smokeWithProot(Context context, Path root, GuestIdentity account) throws IOException {
         Path nativeDir = Path.of(context.getApplicationInfo().nativeLibraryDir);
         Path work = Files.createTempDirectory(context.getCacheDir().toPath(), "phone-smoke-");
         Path aliases = Files.createDirectory(work.resolve("native"));
@@ -166,7 +193,7 @@ public final class PhoneRuntimeInstaller {
             if (!process.waitFor(90, TimeUnit.SECONDS)) throw new IOException("本机运行环境验证超时。");
             if (Files.size(output) > 65536) throw new IOException("Runtime smoke output exceeds its bound");
             String text = Files.readString(output);
-            if (process.exitValue() != 0 || !text.contains("CODEX_RUNTIME_SMOKE") || !text.contains("codex-cli"))
+            if (process.exitValue() != 0 || !text.contains("CODEX_RUNTIME_SMOKE"))
                 throw new IOException("本机运行环境验证失败，诊断记录：" + output.getFileName());
         } catch (InterruptedException stop) {
             interrupted = true;

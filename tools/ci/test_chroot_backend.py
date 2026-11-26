@@ -136,5 +136,21 @@ class ChrootWiringTest(unittest.TestCase):
         self.assertIn("KEYRING_PREPARATION_TIMEOUT_MS", text)
 
 
+class SmokeTestBackendTest(unittest.TestCase):
+    """The activation smoke test must use the same backend choice as keyring.
+
+    It previously always ran through PRoot, so once chroot fixed keyring
+    preparation the install still failed at "本机运行环境验证超时".
+    """
+
+    def test_smoke_prefers_chroot_and_keeps_proot(self):
+        text = PREPARATION.parent.joinpath("PhoneRuntimeInstaller.java").read_text(encoding="utf-8")
+        self.assertIn("CodexChrootChannel.isAvailable(context)", text)
+        self.assertIn("smokeWithProot", text)
+        self.assertIn("CODEX_RUNTIME_SMOKE", text)
+        # The old assertion demanded a binary this payload does not ship.
+        self.assertNotIn('text.contains("codex-cli")', text)
+
+
 if __name__ == "__main__":
     unittest.main()
