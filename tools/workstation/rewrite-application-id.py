@@ -44,14 +44,31 @@ def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def identifier_pattern(old):
+    """Match the old application id only where it stands as a whole id.
+
+    A plain substring match would also hit an id that merely *extends* the old
+    one, which matters because the rewrite runs more than once per build: after
+    the first pass the assets already read ``com.ai.codex.dev``, and a second
+    pass would grow it to ``com.ai.codex.dev.dev``. The negative lookahead keeps
+    an existing ``.dev`` suffix (or any other dotted continuation) untouched,
+    while still matching the id where it is followed by a path separator, quote
+    or whitespace.
+    """
+    import re
+    return re.compile(re.escape(old).encode() + rb"(?![A-Za-z0-9_.])")
+
+
 def rewrite(assets, old, new):
+    pattern = identifier_pattern(old)
+    replacement = new.encode()
     changed = []
     for relative in TEXT_ASSETS:
         path = assets / relative
         if not path.is_file():
             raise SystemExit("Missing expected asset: " + relative)
         before = path.read_bytes()
-        after = before.replace(old.encode(), new.encode())
+        after = pattern.sub(replacement, before)
         if after != before:
             path.write_bytes(after)
             changed.append(relative)
@@ -118,10 +135,8 @@ def rewrite(assets, old, new):
         qualification_path.write_text(
             json.dumps(qualification, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         changed.append("codex-executor-qualification.json (" + ", ".join(sorted(refreshed)) + ")")
-    # A plain substring test would also match the new id when it extends the old
-    # one (com.ai.codex -> com.ai.codex.dev), so require a non-identifier boundary.
-    import re
-    pattern = re.compile(re.escape(old).encode() + rb"(?![A-Za-z0-9_.])")
+    # Any asset still naming the *original* id (as a whole id, not as the prefix
+    # of the narrower one) would make the installed package refuse the payload.
     leftovers = [str(p.relative_to(assets)) for p in assets.rglob("*")
                  if p.is_file() and pattern.search(p.read_bytes())]
     print(json.dumps({"changed": changed, "leftoverAssets": leftovers}, indent=2))

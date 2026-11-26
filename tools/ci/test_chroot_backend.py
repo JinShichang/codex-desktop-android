@@ -5,7 +5,10 @@ this app. These checks keep that contract and the launcher's own guard rails
 from drifting, without needing a device or an Android SDK.
 """
 from pathlib import Path
+import importlib.util
+import json
 import re
+import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -221,6 +224,52 @@ class RewriteQualificationTest(unittest.TestCase):
         # its entry refreshed before the manifest digest is recorded.
         self.assertIn("codex-executor-manifest.json", self.text)
         self.assertIn('entry["sha256"] = actual', self.text)
+
+    def test_rewrite_is_idempotent(self):
+        """Running the rewrite twice must not grow the id to ``...dev.dev``.
+
+        The co-installed build rewrites once during ``recover`` and again after
+        compiling the transport library (its digest lands in the deployment
+        inventory). A plain substring replace turned the second pass into
+        ``com.ai.codex.dev.dev`` and the build died with "Deployment packageName
+        was not rewritten", so the rewrite must only match a whole id.
+        """
+        with tempfile.TemporaryDirectory() as directory:
+            assets = Path(directory)
+            script = ROOT / "tools" / "workstation" / "rewrite-application-id.py"
+            module = importlib.util.spec_from_file_location("rewrite_app_id", script)
+            loaded = importlib.util.module_from_spec(module)
+            module.loader.exec_module(loaded)
+
+            def write(relative, text):
+                path = assets / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(text, encoding="utf-8")
+
+            for relative in loaded.TEXT_ASSETS:
+                write(relative, "package com.ai.codex\n# com.ai.codex/private\n")
+            write("codex-executor-evidence.json", "{}")
+            write("codex-executor-deployment.json", json.dumps({
+                "packageName": "com.ai.codex",
+                "pythonRuntime": {"path": "/data/user/0/com.ai.codex/files/python",
+                                  "manifestAsset": "codex-python-runtime.json",
+                                  "manifestSha256": ""},
+                "nativeLibraries": {},
+            }))
+            write("codex-python-runtime.json", json.dumps({"runtimeHome": "/data/user/0/com.ai.codex/files"}))
+            write("codex-executor-manifest.json", json.dumps([]))
+            write("codex-executor-qualification.json", json.dumps({}))
+
+            loaded.rewrite(assets, "com.ai.codex", "com.ai.codex.dev")
+            deployment = json.loads((assets / "codex-executor-deployment.json").read_text())
+            self.assertEqual(deployment["packageName"], "com.ai.codex.dev")
+
+            # Second pass over already-rewritten assets: nothing left to change.
+            self.assertEqual(loaded.rewrite(assets, "com.ai.codex", "com.ai.codex.dev"), [])
+            deployment = json.loads((assets / "codex-executor-deployment.json").read_text())
+            self.assertEqual(deployment["packageName"], "com.ai.codex.dev")
+            for relative in loaded.TEXT_ASSETS:
+                self.assertNotIn("com.ai.codex.dev.dev", (assets / relative).read_text())
 
 
 class BuildTypeTest(unittest.TestCase):
