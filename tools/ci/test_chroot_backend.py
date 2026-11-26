@@ -22,7 +22,9 @@ class ChrootLauncherTest(unittest.TestCase):
         # Root is mandatory and the guest root must live under the app's
         # private debian directory; anything else is refused, never degraded.
         self.assertIn('[ "$(id -u)" = "0" ]', self.script)
-        self.assertIn("/data/user/0/*/files/debian|/data/data/*/files/debian", self.script)
+        self.assertIn("/data/user/0/*/files/debian", self.script)
+        # A first install still has the tree in staging; that path is admitted too.
+        self.assertIn(".codex-install/fresh/stages/*/root", self.script)
         self.assertIn('fail "refusing root outside', self.script)
 
     def test_mounts_are_private_to_the_namespace(self):

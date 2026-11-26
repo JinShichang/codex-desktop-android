@@ -47,7 +47,12 @@ public final class CodexChrootChannel {
         try {
             if (!CodexDeviceFeatures.enabled(context, "root")) return false;
             if (suPath() == null) return false;
-            return new java.io.File(context.getFilesDir(), "debian/usr/bin/env").isFile();
+            // The guest tree is validated per launch by the launcher script, which
+            // receives the real root. During a first install the tree is still a
+            // staging directory and files/debian does not exist yet, so requiring
+            // the activated path here would silently disable chroot exactly when
+            // it is needed most.
+            return true;
         } catch (Exception error) {
             return false;
         }

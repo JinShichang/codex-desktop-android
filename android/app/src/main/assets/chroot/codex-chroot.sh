@@ -38,9 +38,14 @@ fail() {
 }
 
 [ "$(id -u)" = "0" ] || fail "not root"
+# Admitted roots: the activated guest tree, or the staging tree a first install
+# is still preparing. Both are inside the app's private files directory; the
+# staging form keeps chroot usable during that first run.
 case "$root" in
     /data/user/0/*/files/debian|/data/data/*/files/debian) ;;
-    *) fail "refusing root outside the app's private debian directory: $root" ;;
+    /data/user/0/*/files/.codex-install/fresh/stages/*/root) ;;
+    /data/data/*/files/.codex-install/fresh/stages/*/root) ;;
+    *) fail "refusing root outside the app's private guest trees: $root" ;;
 esac
 [ -d "$root" ] || fail "guest root is missing"
 [ -x "$root/usr/bin/env" ] || fail "guest root is not a prepared Debian tree"
