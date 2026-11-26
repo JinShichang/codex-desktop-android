@@ -78,6 +78,31 @@ class ChrootChannelTest(unittest.TestCase):
         self.assertIn("path.contains(\";\")", self.java)
 
 
+class SuResolutionTest(unittest.TestCase):
+    """Chroot must resolve su exactly like the working root channel does.
+
+    KernelSU serves su through a path an app process cannot stat, so a probe
+    that returns null on failure silently disables chroot even though the app's
+    own root channel works. The fallback must be the bare name, resolved by PATH
+    inside the privileged call -- that is what CodexRootChannel already does.
+    """
+
+    def setUp(self):
+        self.channel = CHANNEL.read_text(encoding="utf-8")
+        self.root = (ROOT / "android/app/src/main/java/com/ai/codex/CodexRootChannel.java").read_text(encoding="utf-8")
+
+    def test_available_falls_back_to_bare_su(self):
+        self.assertIn('return "su";', self.channel)
+        # A null return would disable the backend; it must not exist any more.
+        self.assertNotIn("return null;\n    }\n\n    /**\n     * Materialise", self.channel)
+        self.assertNotIn("no su available for chroot", self.channel)
+
+    def test_candidates_match_the_root_channel(self):
+        import re
+        pattern = re.compile(r'"(/system/bin/su|/system/xbin/su|/sbin/su|/debug_ramdisk/su)"')
+        self.assertEqual(set(pattern.findall(self.channel)), set(pattern.findall(self.root)))
+
+
 class ChrootWiringTest(unittest.TestCase):
     def test_preparation_prefers_chroot_and_keeps_proot(self):
         text = PREPARATION.read_text(encoding="utf-8")

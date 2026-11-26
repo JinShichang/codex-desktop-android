@@ -46,7 +46,6 @@ public final class CodexChrootChannel {
     public static boolean isAvailable(Context context) {
         try {
             if (!CodexDeviceFeatures.enabled(context, "root")) return false;
-            if (suPath() == null) return false;
             // The guest tree is validated per launch by the launcher script, which
             // receives the real root. During a first install the tree is still a
             // staging directory and files/debian does not exist yet, so requiring
@@ -58,12 +57,21 @@ public final class CodexChrootChannel {
         }
     }
 
+    /**
+     * Resolve the su entry point the same way {@link CodexRootChannel} does.
+     *
+     * <p>KernelSU exposes su through a path that is not stat-able from an app
+     * process, so a failed probe must fall back to the bare name and let PATH
+     * resolution inside the privileged call find it. Returning null here (and
+     * disabling chroot) would skip the backend even though the app's own root
+     * channel works on this device.
+     */
     private static String suPath() {
         for (String candidate : new String[] {"/system/bin/su", "/system/xbin/su", "/sbin/su",
                 "/debug_ramdisk/su"}) {
             if (new java.io.File(candidate).canExecute()) return candidate;
         }
-        return null;
+        return "su";
     }
 
     /**
@@ -133,7 +141,6 @@ public final class CodexChrootChannel {
         argv.addAll(command);
 
         String su = suPath();
-        if (su == null) throw new IllegalStateException("no su available for chroot");
         // su carries the launcher path; the launcher itself re-validates the root.
         List<String> privileged = new ArrayList<>(List.of(su, "-c", shellJoin(argv)));
         ProcessBuilder actual = new ProcessBuilder(privileged).redirectErrorStream(true);
@@ -199,7 +206,6 @@ public final class CodexChrootChannel {
         argv.addAll(command);
 
         String su = suPath();
-        if (su == null) throw new IllegalStateException("no su available for chroot");
         ProcessBuilder actual = new ProcessBuilder(su, "-c", shellJoin(argv)).redirectErrorStream(true);
         actual.environment().clear();
         actual.environment().put("PATH", "/system/bin");
