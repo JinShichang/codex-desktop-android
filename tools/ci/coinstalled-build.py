@@ -198,22 +198,25 @@ def toolchain():
         actual = hashlib.new(algorithm, archive.read_bytes()).hexdigest()
         if actual != checksum.text.strip():
             raise SystemExit("Command-line tools checksum differs from repository metadata")
+        # Extract away from the SDK root: the archive may itself be named
+        # cmdline-tools, so unpacking in place would try to move a directory
+        # into its own child.
+        staging = WORK / "downloads" / "cmdline-tools-unpacked"
+        if staging.exists():
+            shutil.rmtree(staging)
+        staging.mkdir(parents=True)
         with zipfile.ZipFile(archive) as zipped:
             for entry in zipped.namelist():
                 path = Path(entry)
                 if path.is_absolute() or ".." in path.parts:
                     raise SystemExit("Unexpected archive member: " + entry)
-            zipped.extractall(sdk)
-        # The archive unpacks a single top-level "cmdline-tools" directory;
-        # sdkmanager requires it to live at cmdline-tools/latest.
-        unpacked = sdk / "cmdline-tools"
-        if not unpacked.is_dir():
-            candidates = [d for d in sdk.iterdir() if d.is_dir() and (d / "bin" / "sdkmanager").is_file()]
-            if len(candidates) != 1:
-                raise SystemExit("Command-line tools archive has an unexpected layout")
-            unpacked = candidates[0]
+            zipped.extractall(staging)
+        roots = [d for d in staging.iterdir() if d.is_dir() and (d / "bin" / "sdkmanager").is_file()]
+        if len(roots) != 1:
+            raise SystemExit("Command-line tools archive has an unexpected layout")
         tools.mkdir(parents=True, exist_ok=True)
-        unpacked.rename(tools / "latest")
+        shutil.move(str(roots[0]), str(tools / "latest"))
+        shutil.rmtree(staging)
         for executable in (tools / "latest" / "bin").iterdir():
             executable.chmod(0o755)
         manager = tools / "latest" / "bin" / "sdkmanager"
