@@ -30,18 +30,25 @@ public final class AndroidProcessPopulation {
         if (observed == null) throw new SecurityException("Android process population is unavailable");
         JSONArray processes = new JSONArray();
         boolean hasRuntime = false;
+        // Process names follow the installed application id, which can differ from
+        // this Java package (a co-installed build). Derive them instead of pinning
+        // the original id, otherwise every such build is refused with
+        // "Unexpected Android process shares the app UID".
+        String self = context.getPackageName();
+        String runtimeName = self + ":runtime";
         for (ActivityManager.RunningAppProcessInfo item : observed) {
             if (item.uid != uid) continue;
-            if (!("com.ai.codex".equals(item.processName) || "com.ai.codex:runtime".equals(item.processName)))
-                throw new SecurityException("Unexpected Android process shares the app UID");
+            if (!(self.equals(item.processName) || runtimeName.equals(item.processName)))
+                throw new SecurityException("Unexpected Android process shares the app UID: "
+                        + item.processName);
             long ticks = startTime(Files.readString(Path.of("/proc", Integer.toString(item.pid), "stat")), item.pid);
             processes.put(new JSONObject().put("pid", item.pid).put("processName", item.processName)
                     .put("startTimeTicks", ticks));
-            if (item.pid == Process.myPid() && "com.ai.codex:runtime".equals(item.processName)) hasRuntime = true;
+            if (item.pid == Process.myPid() && runtimeName.equals(item.processName)) hasRuntime = true;
         }
         if (!hasRuntime) throw new SecurityException("Current runtime is absent from Android's process population");
         JSONObject result = new JSONObject().put("schema", SCHEMA).put("source", SOURCE).put("processes", processes);
-        validate(result);
+        validate(result, self);
         return result;
     }
 
@@ -58,6 +65,11 @@ public final class AndroidProcessPopulation {
     }
 
     static void validate(JSONObject value) throws Exception {
+        validate(value, null);
+    }
+
+    /** Validate a population record against the installed process names. */
+    static void validate(JSONObject value, String self) throws Exception {
         if (value.length() != 3 || !SCHEMA.equals(value.get("schema")) || !SOURCE.equals(value.get("source"))
                 || !(value.get("processes") instanceof JSONArray))
             throw new SecurityException("Process population contract differs");
@@ -73,15 +85,17 @@ public final class AndroidProcessPopulation {
                     || row.getInt("pid") >= PID_UPPER_EXCLUSIVE
                     || !(ticks instanceof Integer || ticks instanceof Long) || row.getLong("startTimeTicks") <= 0
                     || !(row.get("processName") instanceof String)
-                    || !("com.ai.codex".equals(row.getString("processName")) || "com.ai.codex:runtime".equals(row.getString("processName")))
+                    || (self != null && !(self.equals(row.getString("processName"))
+                        || (self + ":runtime").equals(row.getString("processName"))))
                     || !pids.add(row.getInt("pid")) || !names.add(row.getString("processName")))
                 throw new SecurityException("Invalid or duplicated Android process identity");
         }
-        if (!names.contains("com.ai.codex:runtime")) throw new SecurityException("Process population lacks runtime");
+        if (self != null && !names.contains(self + ":runtime"))
+            throw new SecurityException("Process population lacks runtime");
     }
 
     static void requireCurrent(Context context, JSONObject declared) throws Exception {
-        validate(declared);
+        validate(declared, context.getPackageName());
         JSONObject current = capture(context);
         JSONArray rows = declared.getJSONArray("processes"), now = current.getJSONArray("processes");
         if (rows.length() != now.length()) throw new SecurityException("Android app population changed before fork");

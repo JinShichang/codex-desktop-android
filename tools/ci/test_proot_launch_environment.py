@@ -60,6 +60,55 @@ class ProotLaunchEnvironmentTest(unittest.TestCase):
                 self.assertEqual("", match.group(1), path)
 
 
+class ProcessPopulationTest(unittest.TestCase):
+    """Process-name admission must follow the installed application id.
+
+    AndroidProcessPopulation pinned "com.ai.codex" and "com.ai.codex:runtime".
+    A co-installed build runs as com.ai.codex.dev, so admission rejected its own
+    processes with "Unexpected Android process shares the app UID".
+    """
+
+    def setUp(self):
+        self.text = (ROOT / "tools/executor/shizuku-service/transport/src/main/java"
+                     / "com/ai/codex/shizukuexec/AndroidProcessPopulation.java").read_text(encoding="utf-8")
+
+    def test_process_names_are_derived_from_the_package(self):
+        self.assertIn("context.getPackageName()", self.text)
+        self.assertIn('+ ":runtime"', self.text)
+        # No literal original id may remain in the admission check.
+        self.assertNotIn('"com.ai.codex:runtime"', self.text)
+        self.assertNotIn('"com.ai.codex".equals', self.text)
+
+
+class PrivilegedPackagePatternTest(unittest.TestCase):
+    """The root channel validates the package id with a real Java pattern.
+
+    A quadruple backslash produced "\\." which matches a literal backslash, so
+    every legitimate id (com.ai.codex, com.ai.codex.dev) was rejected and the
+    root verification reported POLICY_BLOCKED root_entry_unverified.
+    """
+
+    def setUp(self):
+        self.text = (SOURCES / "main" / "java" / "com" / "ai" / "codex"
+                     / "CodexPrivilegedContext.java").read_text(encoding="utf-8")
+
+    def test_package_pattern_uses_a_single_escaped_dot(self):
+        line = next(line for line in self.text.splitlines() if "expectedPackage.matches" in line)
+        # In the Java source a literal dot in the pattern is written "\\." (two
+        # characters in the file); a quadruple form would match a backslash.
+        self.assertIn(r"(\\.[A-Za-z0-9_]+)", line)
+        self.assertNotIn(r"(\\\\.[A-Za-z0-9_]+)", line)
+
+    def test_dots_and_hyphens_are_handled(self):
+        import re
+        # Mirror the Java pattern in Python to document the intended semantics.
+        pattern = re.compile(r"^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)+$")
+        self.assertTrue(pattern.match("com.ai.codex.dev"))
+        self.assertTrue(pattern.match("com.ai.codex"))
+        self.assertFalse(pattern.match("com.ai.codex-dev"))
+        self.assertFalse(pattern.match("bad"))
+
+
 class ApplicationIdTest(unittest.TestCase):
     """Nothing may hard-code the original id where it means "this installation".
 
