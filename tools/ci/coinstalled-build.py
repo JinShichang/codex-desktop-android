@@ -298,10 +298,12 @@ def build():
         f"-PcodexExecutorJni={state_payload['executorJni']}",
         f"-PcodexExecutorAssets={state_payload['executorAssets']}",
         "-PcodexRequireExecutor=true",
-        # Embed the complete first-install image so the co-installed app can
-        # prepare its own Linux environment without a shared-storage download.
+        # Ship the image *metadata* but not the 1.3 GB archive: the app then
+        # reads codex-phone-rootfs.tar.gz from Download and verifies it against
+        # these hashes (EnvironmentPackageSource). This keeps the test APK small
+        # enough to download, and lets an existing local archive be reused.
         f"-PcodexPhoneImageAssets={PAYLOAD / 'phone-image'}",
-        "-PcodexEmbedPhoneImage=true",
+        "-PcodexEmbedPhoneImage=false",
         # Deliberately do NOT override codexDebugJni: the :lorie and :app
         # debug source sets must keep their default jniLibs locations, otherwise
         # Gradle skips the CMake output and libXlorie.so is never packaged.
