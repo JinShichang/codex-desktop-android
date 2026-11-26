@@ -14,7 +14,7 @@ public final class CodexPrivilegedContext {
         return installed(expectedUid, BuildConfig.APPLICATION_ID);
     }
     public static Context installed(int expectedUid, String expectedPackage) throws Exception {
-        if (expectedPackage==null || !expectedPackage.matches("[A-Za-z][A-Za-z0-9_]*(\\\\.[A-Za-z0-9_]+)+"))
+        if (expectedPackage==null || !expectedPackage.matches("[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z0-9_]+)+"))
             throw new SecurityException("privileged_package_invalid");
         int uid=android.os.Process.myUid();
         if (uid!=0 && uid!=2000) throw new SecurityException("privileged_uid_required");
@@ -30,9 +30,18 @@ public final class CodexPrivilegedContext {
         Context app=system.createPackageContext(packageName,Context.CONTEXT_IGNORE_SECURITY);
         android.content.pm.ApplicationInfo info=app.getPackageManager().getApplicationInfo(packageName,0);
         String source=new File(info.sourceDir).getCanonicalPath();
+        String classPath=System.getProperty("java.class.path");
         if (info.uid!=expectedUid || !source.equals(info.sourceDir) || !source.startsWith("/data/app/")
-                || !source.equals(System.getProperty("java.class.path")))
+                || !source.equals(classPath)) {
+            // Report which part failed: a bare "mismatch" hid that a multi-APK
+            // install puts extra entries in java.class.path.
+            android.util.Log.e("CodexRoot", "installed_context mismatch"
+                    + " expectedUid=" + expectedUid + " actualUid=" + info.uid
+                    + " source=" + info.sourceDir + " canonical=" + source
+                    + " startsWithDataApp=" + source.startsWith("/data/app/")
+                    + " classPath=" + classPath);
             throw new SecurityException("installed_apk_identity_mismatch");
+        }
         return app;
     }
 
