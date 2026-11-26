@@ -54,16 +54,17 @@ dependencies {
 // shortcut fail to launch. Rewrite the placeholder with the real id on each
 // build so a co-installed build addresses its own components.
 def codexShortcutSource = file('src/main/res-template/codex_shortcuts.xml')
-def codexShortcutOutput = layout.buildDirectory.dir('generated/codexShortcuts')
-def generateCodexShortcuts = tasks.register('generateCodexShortcuts') {
-    def applicationIdProvider = providers.gradleProperty('codexApplicationId').orElse('com.ai.codex')
+abstract class CodexShortcutResources extends DefaultTask {
+    @OutputDirectory abstract DirectoryProperty getOutputDir()
+}
+def generateCodexShortcuts = tasks.register('generateCodexShortcuts', CodexShortcutResources) {
+    def resolveApplicationId = { -> providers.gradleProperty('codexApplicationId').getOrElse('com.ai.codex') }
     inputs.file(codexShortcutSource)
-    inputs.property('applicationId', applicationIdProvider)
-    outputDir = codexShortcutOutput
-    outputs.dir(outputDir)
+    inputs.property('applicationId', resolveApplicationId().toString())
+    outputDir.set(layout.buildDirectory.dir('generated/codexShortcuts'))
     doLast {
-        def template = codexShortcutSource.getAsFile().text
-        def resolved = template.replace('__CODEX_APPLICATION_ID__', applicationIdProvider.get())
+        def applicationId = resolveApplicationId()
+        def resolved = codexShortcutSource.text.replace('__CODEX_APPLICATION_ID__', applicationId)
         if (resolved.contains('__CODEX_APPLICATION_ID__'))
             throw new GradleException('Shortcut template still contains its placeholder')
         def target = new File(outputDir.get().asFile, 'xml/codex_shortcuts.xml')
