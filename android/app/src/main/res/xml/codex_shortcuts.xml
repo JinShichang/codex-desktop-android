@@ -1,11 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  targetPackage must follow the installed application id. A literal value made
+  every build's shortcuts point at com.ai.codex, so a build installed under a
+  different id (for example a co-installed test build) opened the *other*
+  installation's screens, and failed outright once that one was removed.
+-->
 <shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
     <shortcut android:shortcutId="android_tools" android:enabled="true"
         android:icon="@drawable/lorie_ic_settings" android:shortcutShortLabel="@string/codex_android_tools_shortcut">
-        <intent android:action="android.intent.action.MAIN" android:targetPackage="com.ai.codex" android:targetClass="com.ai.codex.AndroidToolsActivity" />
+        <intent android:action="android.intent.action.MAIN" android:targetPackage="${applicationId}" android:targetClass="com.ai.codex.AndroidToolsActivity" />
     </shortcut>
     <shortcut android:shortcutId="display_settings" android:enabled="true"
         android:icon="@drawable/lorie_ic_settings" android:shortcutShortLabel="@string/codex_settings_shortcut">
-        <intent android:action="android.intent.action.MAIN" android:targetPackage="com.ai.codex" android:targetClass="com.termux.x11.LoriePreferences" />
+        <intent android:action="android.intent.action.MAIN" android:targetPackage="${applicationId}" android:targetClass="com.termux.x11.LoriePreferences" />
     </shortcut>
 </shortcuts>

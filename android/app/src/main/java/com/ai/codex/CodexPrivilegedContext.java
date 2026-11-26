@@ -9,8 +9,9 @@ import java.lang.reflect.Method;
 /** Fixed installed-APK identity for app_process. Inspired by DSHA PrivilegedPackageContext. */
 public final class CodexPrivilegedContext {
     private CodexPrivilegedContext() {}
+    /** Legacy single-argument form; callers should pass their real package id. */
     public static Context installed(int expectedUid) throws Exception {
-        return installed(expectedUid, "com.ai.codex");
+        return installed(expectedUid, BuildConfig.APPLICATION_ID);
     }
     public static Context installed(int expectedUid, String expectedPackage) throws Exception {
         if (expectedPackage==null || !expectedPackage.matches("[A-Za-z][A-Za-z0-9_]*(\\\\.[A-Za-z0-9_]+)+"))

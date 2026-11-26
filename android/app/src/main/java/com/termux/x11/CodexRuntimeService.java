@@ -622,7 +622,12 @@ public final class CodexRuntimeService extends Service {
             if (processUid(entry) != uid) continue;
             String command = readProcessCommand(entry);
             if (command == null) return null; // Cannot prove a helper is gone.
-            if (!command.startsWith("com.ai.codex")) candidates.add(pid);
+            // Only this installation's own helpers are excluded; a prefix match
+            // would also exclude a co-installed build with a longer id and leak
+            // its processes instead of reaping them.
+            String selfPackage=getPackageName();
+            if (!command.equals(selfPackage) && !command.startsWith(selfPackage + "/")
+                    && !command.startsWith(selfPackage + ":")) candidates.add(pid);
         }
         return candidates;
     }

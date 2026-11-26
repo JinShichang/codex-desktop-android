@@ -60,5 +60,34 @@ class ProotLaunchEnvironmentTest(unittest.TestCase):
                 self.assertEqual("", match.group(1), path)
 
 
+class ApplicationIdTest(unittest.TestCase):
+    """Nothing may hard-code the original id where it means "this installation".
+
+    A literal ``com.ai.codex`` in a shortcut, a component lookup or a process
+    matcher makes a build installed under a different id address the *other*
+    installation: shortcuts open the wrong app, and once that app is removed the
+    target is missing entirely.
+    """
+
+    def test_shortcuts_follow_the_application_id(self):
+        shortcuts = SOURCES / "main" / "res" / "xml" / "codex_shortcuts.xml"
+        text = shortcuts.read_text(encoding="utf-8")
+        self.assertIn('android:targetPackage="${applicationId}"', text)
+        self.assertNotIn('android:targetPackage="com.ai.codex"', text)
+
+    def test_self_lookups_use_the_build_id(self):
+        privileged = (SOURCES / "main" / "java" / "com" / "ai" / "codex"
+                      / "CodexPrivilegedContext.java").read_text(encoding="utf-8")
+        self.assertIn("BuildConfig.APPLICATION_ID", privileged)
+        # The historical default must not survive as a literal package lookup.
+        self.assertNotIn('createPackageContext("com.ai.codex"', privileged)
+
+    def test_process_reaping_does_not_use_a_package_prefix(self):
+        service = (SOURCES / "main" / "java" / "com" / "termux" / "x11"
+                   / "CodexRuntimeService.java").read_text(encoding="utf-8")
+        self.assertNotIn('command.startsWith("com.ai.codex")', service)
+        self.assertIn("getPackageName()", service)
+
+
 if __name__ == "__main__":
     unittest.main()
