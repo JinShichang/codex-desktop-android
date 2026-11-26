@@ -24,6 +24,10 @@ import org.json.JSONObject;
  * readiness. Keep the private data until the complete installer is implemented.
  */
 public final class AndroidInactivePreparation {
+    /** Upper bound for the keyring preparation child. The deadline must exceed a
+     * cold first-install run of gnome-keyring-daemon plus collection creation,
+     * which measured beyond 60 s on a OnePlus 13; it still bounds the step. */
+    private static final long KEYRING_PREPARATION_TIMEOUT_MS=300000;
     private AndroidInactivePreparation() {}
     public static final class Result {
         public final Path root;
@@ -212,7 +216,12 @@ public final class AndroidInactivePreparation {
             else if(!vaultHash.equals(journal.value("vaultSha256"))) throw new IOException("Inactive vault ciphertext changed");
             if(journal.step()==InactivePreparationJournal.Step.COLLECTION_PREPARED) verifyCollectionFiles(data,journal,storage);
             ProcessBuilder process=guestProcess(context,root,account,nativeDirectory,storage);
-            String output=SecretPipeProcess.run(process,credential,60000);
+            // PRoot now walks the portable PTRACE_SYSCALL path (see
+            // ProotEnvironment), so this step actually runs instead of dying at
+            // once. Launching gnome-keyring-daemon on a private bus and creating
+            // the collection takes well over the previous 60 s bound on a phone
+            // doing its first install; keep a bound, but one that covers it.
+            String output=SecretPipeProcess.run(process,credential,KEYRING_PREPARATION_TIMEOUT_MS);
             credential=null; // SecretPipeProcess erased the exact transferred array.
             JSONObject receipt=receipt(output);
             String intentHash=receipt.getString("intentSha256"),collectionId=receipt.getString("installationId");
