@@ -54,6 +54,27 @@ class ChrootLauncherTest(unittest.TestCase):
         self.assertEqual(0, result.returncode, result.stdout)
 
 
+class BindTargetCleanupTest(unittest.TestCase):
+    """Extra bind targets must not survive as foreign-owned directories.
+
+    The keyring vault lives in no_backup/, bound at its own absolute path. That
+    created root-owned directories inside the guest tree, and the installer's
+    syncTree then refused to activate:
+        Installer sync target is not an owned directory
+    """
+
+    def setUp(self):
+        self.script = LAUNCHER.read_text(encoding="utf-8")
+
+    def test_created_bind_targets_are_recorded(self):
+        self.assertIn(".codex-chroot-created", self.script)
+
+    def test_recorded_targets_are_pruned(self):
+        self.assertIn('rmdir "$target"', self.script)
+        # Parents created only to hold a bind target are pruned too.
+        self.assertIn('rmdir "$parent"', self.script)
+
+
 class GuestCleanupTest(unittest.TestCase):
     """The launcher must leave the guest tree as the app owns it.
 

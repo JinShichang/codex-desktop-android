@@ -40,8 +40,15 @@ public final class AndroidRootfsTransaction {
             try {
                 fd = Os.open(path.toString(), OsConstants.O_RDONLY | OsConstants.O_NONBLOCK | OsConstants.O_NOFOLLOW | OsConstants.O_CLOEXEC, 0);
                 StructStat stat = Os.fstat(fd);
-                if (stat.st_uid != android.os.Process.myUid() || !OsConstants.S_ISDIR(stat.st_mode))
-                    throw new IOException("Installer sync target is not an owned directory");
+                if (stat.st_uid != android.os.Process.myUid() || !OsConstants.S_ISDIR(stat.st_mode)) {
+                    // Name the offending directory: "not owned" alone does not
+                    // reveal whether a guest-created folder or a live mount was
+                    // walked.
+                    android.util.Log.e("CodexRootfs", "sync refused " + path
+                            + " uid=" + stat.st_uid + " expected=" + android.os.Process.myUid()
+                            + " isDir=" + OsConstants.S_ISDIR(stat.st_mode));
+                    throw new IOException("Installer sync target is not an owned directory: " + path);
+                }
                 Os.fsync(fd);
             } catch (ErrnoException error) { throw new IOException("Installer directory sync failed", error); }
             finally {

@@ -85,9 +85,18 @@ if [ -n "${CODEX_EXTRA_BINDS:-}" ]; then
             *:*) src="${entry%%:*}"; dst="${entry#*:}" ;;
         esac
         [ -e "$src" ] || continue
-        mkdir -p "$root$dst" 2>/dev/null || continue
+        # Bind targets are created as root, so they must be recorded and undone:
+        # the installer walks this tree and refuses any foreign-owned directory.
+        created=""
+        if [ ! -d "$root$dst" ]; then
+            mkdir -p "$root$dst" 2>/dev/null || continue
+            case "$dst" in
+                /*) created="$root$dst" ;;
+            esac
+        fi
         mount --bind "$src" "$root$dst" 2>/dev/null || \
             echo "codex-chroot: bind $src -> $dst failed" >&2
+        [ -n "$created" ] && echo "$created" >> "$root/.codex-chroot-created"
     done
     IFS="$old_ifs"
 fi
@@ -114,6 +123,23 @@ restore_ownership() {
     for target in proc sys dev/pts dev apex; do
         umount "$root/$target" 2>/dev/null || true
     done
+    # Remove bind targets this launch created inside the guest tree, deepest
+    # first, then prune the parents that only existed to hold them.
+    if [ -f "$root/.codex-chroot-created" ]; then
+        created_list=$(mktemp)
+        cp "$root/.codex-chroot-created" "$created_list" 2>/dev/null || true
+        rm -f "$root/.codex-chroot-created"
+        sort -r "$created_list" 2>/dev/null | while IFS= read -r target; do
+            [ -n "$target" ] || continue
+            rmdir "$target" 2>/dev/null || true
+            parent=$(dirname "$target")
+            while [ "$parent" != "$root" ] && [ "${parent#"$root"}" != "$parent" ]; do
+                rmdir "$parent" 2>/dev/null || break
+                parent=$(dirname "$parent")
+            done
+        done
+        rm -f "$created_list"
+    fi
 }
 
 # Android'"'"'s /system/bin/chroot is toybox and has no --userspec, so the identity

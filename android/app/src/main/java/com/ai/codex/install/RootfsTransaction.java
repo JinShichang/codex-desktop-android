@@ -328,11 +328,24 @@ public final class RootfsTransaction implements AutoCloseable {
         // them, and fsync on a procfs entry is meaningless. The launcher detaches
         // them too, but a still-exiting guest must not break activation.
         java.util.Set<String> skipped = java.util.Set.of("proc", "sys", "dev", "apex");
+        long ownerUid = android.os.Process.myUid();
         Files.walkFileTree(root, new SimpleFileVisitor<>() {
-            @Override public FileVisitResult preVisitDirectory(Path directory, BasicFileAttributes attributes) {
+            @Override public FileVisitResult preVisitDirectory(Path directory, BasicFileAttributes attributes) throws IOException {
                 if (!directory.equals(root) && skipped.contains(directory.getFileName().toString())
                         && directory.getParent() != null && directory.getParent().equals(root))
                     return FileVisitResult.SKIP_SUBTREE;
+                // A directory the guest created as root while running under chroot
+                // (bind targets, caches) is not part of the prepared runtime: the
+                // launcher removes them, but a still-exiting guest must not fail
+                // activation. Skip the subtree instead of aborting the walk.
+                if (!directory.equals(root)) {
+                    try {
+                        if (android.system.Os.lstat(directory.toString()).st_uid != ownerUid)
+                            return FileVisitResult.SKIP_SUBTREE;
+                    } catch (android.system.ErrnoException error) {
+                        throw new IOException("Cannot inspect prepared runtime directory: " + directory, error);
+                    }
+                }
                 return FileVisitResult.CONTINUE;
             }
             @Override public FileVisitResult visitFile(Path file, BasicFileAttributes attributes) throws IOException {
