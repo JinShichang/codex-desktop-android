@@ -295,37 +295,42 @@ def toolchain():
 
 # --------------------------------------------------------------------------- build
 
-def sync_transport_digest(gradle: str, environment) -> None:
-    """Compile the transport library and record its digest before packaging.
+def record_transport_digest_from_apk(apk: Path) -> bool:
+    """Make the deployment inventory describe what the APK actually ships.
 
-    The library is built from source by :shizukuTransport (it embeds this build's
-    admission policy), while the deployment inventory still carries the published
-    digest. Compiling first lets the inventory describe what will actually ship.
+    libcodex_app_transport.so is compiled from source, and a Gradle library's
+    debug and release variants do not produce identical bytes, so a digest read
+    from ``:shizukuTransport:assembleDebug`` never matched the library that the
+    application's ``assembleRelease`` packaged. Admission then rejected every
+    launch with "Packaged native library digest mismatch" -- which is exactly what
+    the first device run after the dumpable fix reported.
+
+    Reading the library back out of the produced APK removes the guesswork: the
+    inventory is written from the packaged bytes themselves. Returns True when the
+    inventory had to change, so the caller repackages once; the native output is
+    already up to date by then, so the library bytes stay identical.
     """
     name = "libcodex_app_transport.so"
-    module = ROOT / "tools" / "executor" / "shizuku-service" / "transport"
-    run("build-transport", [gradle, "-p", str(ROOT / "android"), ":shizukuTransport:assembleDebug",
-                            "--no-daemon"], env=environment)
-    candidates = sorted(module.parent.parent.parent.parent.glob(
-        "**/modules/shizukuTransport/**/arm64-v8a/" + name), key=lambda p: p.stat().st_mtime)
-    if not candidates:
-        candidates = sorted(ROOT.glob("android/**/" + name), key=lambda p: p.stat().st_mtime)
-    if not candidates:
-        raise SystemExit("Transport library was not built")
-    actual = digest(candidates[-1])
+    with zipfile.ZipFile(apk) as archive:
+        member = "lib/arm64-v8a/" + name
+        if member not in archive.namelist():
+            raise SystemExit("Produced APK lacks " + member)
+        actual = hashlib.sha256(archive.read(member)).hexdigest()
     deployment_path = PAYLOAD / "executor-assets" / "codex-executor-deployment.json"
     deployment = json.loads(deployment_path.read_text(encoding="utf-8"))
     if deployment["nativeLibraries"].get(name) == actual:
-        log("build", name + " digest already current")
-        return
+        log("build", "packaged " + name + " digest matches the inventory")
+        return False
     deployment["nativeLibraries"][name] = actual
-    deployment_path.write_text(json.dumps(deployment, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    log("build", "recorded built digest for " + name)
+    deployment_path.write_text(json.dumps(deployment, indent=2, sort_keys=True) + "\n",
+                               encoding="utf-8")
+    log("build", "recorded packaged digest for " + name + ": " + actual)
     # The qualification record pins the deployment digest, so refresh the chain.
     package_id = json.loads((WORK / "state.json").read_text())["packageId"]
     run("build", [sys.executable, "-B", ROOT / "tools" / "workstation"
                   / "rewrite-application-id.py", "--assets", PAYLOAD / "executor-assets",
                   "--from", "com.ai.codex", "--to", package_id])
+    return True
 
 
 def build():
@@ -372,14 +377,23 @@ def build():
     # build does not carry.
     (PAYLOAD / "debug-assets-empty").mkdir(parents=True, exist_ok=True)
     # libcodex_app_transport.so is compiled from source because it carries this
-    # build's admission policy. Its digest is recorded in the deployment inventory,
-    # so compile once, read the produced library, update the inventory, and only
-    # then assemble the APK that will actually be verified.
-    sync_transport_digest(gradle, environment)
+    # build's admission policy, but its packaged bytes are only known after the
+    # APK exists. So: package once, read the library back out of that APK, write
+    # the real digest into the inventory, then package again with the corrected
+    # asset. The second assemble reuses the already-built native output, so the
+    # library bytes are unchanged and the recorded digest stays true.
     run("build", command, env=environment)
-    produced = list((ROOT / "android" / "app" / "build" / "outputs" / "apk" / "release").glob("*.apk"))
+    output_directory = ROOT / "android" / "app" / "build" / "outputs" / "apk" / "release"
+    produced = sorted(output_directory.glob("*.apk"))
     if not produced:
         raise SystemExit("Gradle produced no release APK")
+    if record_transport_digest_from_apk(produced[-1]):
+        run("build", command, env=environment)
+        produced = sorted(output_directory.glob("*.apk"))
+        if not produced:
+            raise SystemExit("Gradle produced no release APK after digest correction")
+        if record_transport_digest_from_apk(produced[-1]):
+            raise SystemExit("Packaged transport digest still disagrees with the inventory")
 
     OUT.mkdir(parents=True, exist_ok=True)
     for path in produced:
@@ -410,6 +424,19 @@ def verify():
     with zipfile.ZipFile(apk) as archive:
         names = set(archive.namelist())
         deployment = json.loads(archive.read("assets/codex-executor-deployment.json"))
+        # The packaged library must match the inventory the app itself checks at
+        # admission time; otherwise the APK installs and then refuses every
+        # launch with "Packaged native library digest mismatch".
+        for member in sorted(n for n in names if n.startswith("lib/arm64-v8a/libcodex_")):
+            library = member.rsplit("/", 1)[1]
+            expected = deployment["nativeLibraries"].get(library)
+            if expected is None:
+                continue
+            actual = hashlib.sha256(archive.read(member)).hexdigest()
+            if actual != expected:
+                raise SystemExit("Packaged " + library + " does not match the deployment inventory: "
+                                 + actual + " != " + expected)
+        report["nativeInventoryMatches"] = True
         if deployment["packageName"] != state["packageId"]:
             raise SystemExit("Deployment asset names the wrong package")
         if state["packageId"] not in deployment["pythonRuntime"]["path"]:

@@ -416,6 +416,22 @@ class AppTransportSourceBuildTest(unittest.TestCase):
     def test_published_copy_is_not_reused(self):
         self.assertIn('if name == "libcodex_app_transport.so"', self.builder)
 
+    def test_transport_digest_comes_from_the_produced_apk(self):
+        """The inventory must describe the packaged bytes, not a separate build.
+
+        A Gradle library's debug and release variants do not produce identical
+        bytes, so a digest read from ``:shizukuTransport:assembleDebug`` never
+        matched what ``assembleRelease`` packaged. Admission then rejected the
+        installed APK with "Packaged native library digest mismatch". The digest
+        is now read back out of the produced APK itself.
+        """
+        self.assertIn("record_transport_digest_from_apk", self.builder)
+        self.assertNotIn("sync_transport_digest", self.builder)
+        # Packaging happens first, then the digest is corrected and it repackages.
+        self.assertIn("hashlib.sha256(archive.read(member)).hexdigest()", self.builder)
+        # verify() refuses to publish an APK whose library disagrees with it.
+        self.assertIn("does not match the deployment inventory", self.builder)
+
 
 if __name__ == "__main__":
     unittest.main()
