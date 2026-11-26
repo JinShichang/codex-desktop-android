@@ -103,6 +103,29 @@ class SuResolutionTest(unittest.TestCase):
         self.assertEqual(set(pattern.findall(self.channel)), set(pattern.findall(self.root)))
 
 
+class GuestEnvironmentValidationTest(unittest.TestCase):
+    """The validator must not depend on regex escapes Java rejects.
+
+    The previous pattern ended in a NUL escape, which java.util.regex refuses
+    with "Unrecognized backslash escape sequence"; that exception escaped the
+    launcher and aborted keyring preparation on every start.
+    """
+
+    def setUp(self):
+        self.channel = CHANNEL.read_text(encoding="utf-8")
+
+    def test_no_unsupported_regex_escapes(self):
+        # A NUL character class inside a Java pattern string is the specific
+        # mistake; assert the literal never appears in a matches() call.
+        for line in self.channel.splitlines():
+            if ".matches(" in line and "\\0" in line:
+                self.fail("unsupported NUL escape in pattern: " + line.strip())
+
+    def test_environment_entries_are_checked_without_regex(self):
+        self.assertIn("isValidEnvironmentEntry", self.channel)
+        self.assertIn("c == 0", self.channel)
+
+
 class ChrootWiringTest(unittest.TestCase):
     def test_preparation_prefers_chroot_and_keeps_proot(self):
         text = PREPARATION.read_text(encoding="utf-8")

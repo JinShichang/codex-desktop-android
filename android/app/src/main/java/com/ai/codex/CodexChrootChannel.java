@@ -250,12 +250,35 @@ public final class CodexChrootChannel {
         }
     }
 
+    /**
+     * True for a NAME=value pair whose name is a plain identifier and whose
+     * value carries no newline, carriage return or NUL.
+     *
+     * <p>Checked by comparison rather than by a regex: the earlier
+     * pattern rejected every entry because Java's regex engine does not
+     * accept a NUL escape, which aborted the whole launch.
+     */
+    private static boolean isValidEnvironmentEntry(String entry) {
+        int equals = entry.indexOf('=');
+        if (equals <= 0) return false;
+        String name = entry.substring(0, equals);
+        if (!name.matches("[A-Z_][A-Z0-9_]*")) return false;
+        String value = entry.substring(equals + 1);
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            if (c == '\n' || c == '\r' || c == 0) return false;
+        }
+        return true;
+    }
+
     /** Validate and forward the guest environment and bind list. */
     private static void applyGuestEnvironment(ProcessBuilder actual, List<String> guestEnv,
             List<java.io.File> extraBinds) {
         if (!guestEnv.isEmpty()) {
             for (String entry : guestEnv) {
-                if (!entry.matches("[A-Z_][A-Z0-9_]*=[^\\n\\r\\0]*"))
+                // Validate without regex escapes that Java rejects (\0 is not a
+                // supported escape): name=value with no control characters.
+                if (!isValidEnvironmentEntry(entry))
                     throw new IllegalArgumentException("Invalid guest environment entry: " + entry);
             }
             actual.environment().put("CODEX_GUEST_ENV", String.join(" ", guestEnv));
