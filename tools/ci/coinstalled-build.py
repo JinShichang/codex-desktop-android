@@ -171,27 +171,49 @@ def toolchain():
     if not manager.is_file():
         metadata = fetch("https://dl.google.com/android/repository/repository2-1.xml",
                          WORK / "downloads" / "repository.xml", limit=16 * 1024**2)
-        text = metadata.read_text(encoding="utf-8")
-        # Use the archive Google itself publishes, then verify its checksum.
-        match = re.search(
-            r"<remotePackage path=\"cmdline-tools;latest\">.*?<host-os>linux</host-os>.*?"
-            r"<url>(commandlinetools-linux-[^<]+\.zip)</url>.*?<checksum[^>]*>([0-9a-f]+)</checksum>.*?"
-            r"<size>(\d+)</size>", text, re.S)
-        if not match:
-            raise SystemExit("Cannot resolve the command-line tools archive")
-        name, checksum, size = match.group(1), match.group(2), int(match.group(3))
+        # Resolve the archive from Google's own manifest instead of guessing a
+        # filename: select the linux archive of cmdline-tools;latest only, then
+        # verify both its published checksum and size.
+        import xml.etree.ElementTree as ElementTree
+        tree = ElementTree.fromstring(metadata.read_bytes())
+        package = next((p for p in tree.findall("remotePackage")
+                        if p.attrib.get("path") == "cmdline-tools;latest"), None)
+        if package is None:
+            raise SystemExit("Repository manifest has no cmdline-tools;latest package")
+        archive_node = next((a for a in package.findall("archives/archive")
+                             if a.findtext("host-os") == "linux"), None)
+        if archive_node is None:
+            raise SystemExit("cmdline-tools;latest has no linux archive")
+        complete = archive_node.find("complete")
+        name = complete.findtext("url")
+        checksum = complete.find("checksum")
+        size = int(complete.findtext("size"))
+        if not name or checksum is None:
+            raise SystemExit("cmdline-tools;latest archive is incomplete")
+        algorithm = checksum.attrib.get("type", "sha1").replace("-", "").lower()
         archive = fetch("https://dl.google.com/android/repository/" + name,
                         WORK / "downloads" / name)
         if archive.stat().st_size != size:
             raise SystemExit("Command-line tools size differs from repository metadata")
+        actual = hashlib.new(algorithm, archive.read_bytes()).hexdigest()
+        if actual != checksum.text.strip():
+            raise SystemExit("Command-line tools checksum differs from repository metadata")
         with zipfile.ZipFile(archive) as zipped:
             for entry in zipped.namelist():
                 path = Path(entry)
                 if path.is_absolute() or ".." in path.parts:
                     raise SystemExit("Unexpected archive member: " + entry)
             zipped.extractall(sdk)
-        (sdk / "cmdline-tools").mkdir(exist_ok=True)
-        (sdk / "latest").rename(tools / "latest")
+        # The archive unpacks a single top-level "cmdline-tools" directory;
+        # sdkmanager requires it to live at cmdline-tools/latest.
+        unpacked = sdk / "cmdline-tools"
+        if not unpacked.is_dir():
+            candidates = [d for d in sdk.iterdir() if d.is_dir() and (d / "bin" / "sdkmanager").is_file()]
+            if len(candidates) != 1:
+                raise SystemExit("Command-line tools archive has an unexpected layout")
+            unpacked = candidates[0]
+        tools.mkdir(parents=True, exist_ok=True)
+        unpacked.rename(tools / "latest")
         for executable in (tools / "latest" / "bin").iterdir():
             executable.chmod(0o755)
         manager = tools / "latest" / "bin" / "sdkmanager"
