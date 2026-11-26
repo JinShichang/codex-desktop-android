@@ -5,6 +5,7 @@ import android.system.ErrnoException;
 import android.system.Os;
 import android.system.OsConstants;
 import android.system.StructStat;
+import com.ai.codex.CodexChrootChannel;
 import com.ai.codex.KeyringVault;
 import java.io.*;
 import java.nio.ByteBuffer;
