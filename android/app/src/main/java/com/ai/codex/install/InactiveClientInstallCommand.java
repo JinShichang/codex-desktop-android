@@ -41,6 +41,9 @@ public final class InactiveClientInstallCommand {
         builder.environment().put("PROOT_LOADER_32",nativeDirectory.resolve("libproot-loader32.so").toString());
         builder.environment().put("PROOT_TMP_DIR",work.resolve("tmp").toString());
         builder.environment().put("TMPDIR",work.resolve("tmp").toString());
+        // The installer script runs the package manager and its own helpers, so
+        // the guest execs more than once inside this filtered app process.
+        ProotEnvironment.disableSeccompAcceleration(builder.environment());
         return builder;
     }
     static String run(ProcessBuilder builder,long timeoutMillis,Path diagnosticLog,Stopper stopper) throws IOException,InterruptedException {

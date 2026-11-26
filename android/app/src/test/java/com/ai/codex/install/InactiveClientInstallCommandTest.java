@@ -20,8 +20,9 @@ public class InactiveClientInstallCommandTest {
         assertFalse(command.contains("--no-sandbox"));
         assertFalse(command.stream().anyMatch(value -> value.contains("DISPLAY=") || value.contains("LD_PRELOAD=")
             || value.contains("DBUS_SESSION_BUS_ADDRESS=") || value.contains("/home/codex:")));
-        assertEquals(Set.of("PATH","LD_LIBRARY_PATH","PROOT_LOADER","PROOT_LOADER_32","PROOT_TMP_DIR","TMPDIR"),
-            process.environment().keySet());
+        assertEquals(Set.of("PATH","LD_LIBRARY_PATH","PROOT_LOADER","PROOT_LOADER_32","PROOT_TMP_DIR","TMPDIR",
+            ProotEnvironment.NO_SECCOMP), process.environment().keySet());
+        assertEquals("1",process.environment().get(ProotEnvironment.NO_SECCOMP));
         assertEquals("/apk/native/libproot-loader.so",process.environment().get("PROOT_LOADER"));
     }
     @Test public void ambiguousPathsAndInvalidBindingsAreRejected() throws Exception {

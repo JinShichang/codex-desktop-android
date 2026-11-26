@@ -116,6 +116,7 @@ public final class NativePrivateExecProbeService extends Service {
                 builder.environment().put("PROOT_LOADER",nativeDirectory.resolve("libproot-loader.so").toString());
                 builder.environment().put("PROOT_LOADER_32",nativeDirectory.resolve("libproot-loader32.so").toString());
                 builder.environment().put("PROOT_TMP_DIR",evidence.resolve("tmp").toString());
+                com.ai.codex.install.ProotEnvironment.disableSeccompAcceleration(builder.environment());
                 process=builder.redirectErrorStream(true).redirectOutput(evidence.resolve("fixture-output.txt").toFile()).start();
                 process.getOutputStream().close();
                 if(!process.waitFor(90,TimeUnit.SECONDS)) throw new IOException("Private transport fixture exceeded deadline");
