@@ -10,6 +10,11 @@ import java.lang.reflect.Method;
 public final class CodexPrivilegedContext {
     private CodexPrivilegedContext() {}
     public static Context installed(int expectedUid) throws Exception {
+        return installed(expectedUid, "com.ai.codex");
+    }
+    public static Context installed(int expectedUid, String expectedPackage) throws Exception {
+        if (expectedPackage==null || !expectedPackage.matches("[A-Za-z][A-Za-z0-9_]*(\\\\.[A-Za-z0-9_]+)+"))
+            throw new SecurityException("privileged_package_invalid");
         int uid=android.os.Process.myUid();
         if (uid!=0 && uid!=2000) throw new SecurityException("privileged_uid_required");
         if (expectedUid<10000 || expectedUid/100000!=0) throw new SecurityException("owner_uid_invalid");
@@ -18,8 +23,11 @@ public final class CodexPrivilegedContext {
         Object current=thread.getMethod("currentActivityThread").invoke(null);
         if (current==null) current=thread.getMethod("systemMain").invoke(null);
         Context system=(Context)thread.getMethod("getSystemContext").invoke(current);
-        Context app=system.createPackageContext("com.ai.codex",Context.CONTEXT_IGNORE_SECURITY);
-        android.content.pm.ApplicationInfo info=app.getPackageManager().getApplicationInfo("com.ai.codex",0);
+        // The application id can differ from this Java package (a co-installed
+        // build); always identify the installed APK by its real package name.
+        String packageName=expectedPackage;
+        Context app=system.createPackageContext(packageName,Context.CONTEXT_IGNORE_SECURITY);
+        android.content.pm.ApplicationInfo info=app.getPackageManager().getApplicationInfo(packageName,0);
         String source=new File(info.sourceDir).getCanonicalPath();
         if (info.uid!=expectedUid || !source.equals(info.sourceDir) || !source.startsWith("/data/app/")
                 || !source.equals(System.getProperty("java.class.path")))

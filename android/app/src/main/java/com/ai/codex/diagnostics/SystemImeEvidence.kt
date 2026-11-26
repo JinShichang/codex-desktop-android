@@ -15,7 +15,7 @@ data class SystemImeEvent(
 }
 
 object SystemImeEvidence {
-    const val APP_PACKAGE = "com.ai.codex"
+    val APP_PACKAGE: String = com.ai.codex.BuildConfig.APPLICATION_ID
     const val WINDOW_MS = 120_000L
     const val MAX_EVENTS = 64
     const val MAX_BYTES = 128 * 1024

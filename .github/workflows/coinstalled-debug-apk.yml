@@ -1,0 +1,85 @@
+name: Build co-installed debug APK
+
+# A separate workflow for a co-installed build that verifies the PRoot launch fix
+# without the maintainer's original signing key.
+#
+# This workflow is deliberately independent of manual-full-apk.yml:
+#   * its native-baseline input (release ci-native-baseline-v60) is no longer
+#     published, so payload reuse cannot be replayed; instead the unchanged
+#     native/asset payload is recovered from the public v85 release, whose
+#     SHA-256 is pinned below and verified here;
+#   * it does not read CODEX_KEYSTORE_BASE64, because the product is a *new*
+#     package name signed with a throwaway debug key. It therefore installs
+#     beside the existing app instead of updating it.
+#
+# The output is a test artifact only. It must never be published as an update
+# of com.ai.codex: a different signer cannot update that installation.
+on:
+  workflow_dispatch:
+    inputs:
+      package_id:
+        description: 'New application id for the co-installed build'
+        type: string
+        default: 'com.ai.codex.dev'
+      base_version:
+        description: 'Published release providing the unchanged native payload'
+        type: string
+        default: 'v85'
+
+permissions:
+  contents: read
+concurrency:
+  group: coinstalled-debug-apk
+  cancel-in-progress: false
+env:
+  PYTHONDONTWRITEBYTECODE: '1'
+  GRADLE_USER_HOME: ${{ github.workspace }}/work/coinstall/gradle-home
+
+jobs:
+  build:
+    name: Recover payload, rename package, build debug APK
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+
+      - name: Recover the unchanged payload from the pinned public APK
+        env:
+          PACKAGE_ID: ${{ inputs.package_id }}
+          BASE_VERSION: ${{ inputs.base_version }}
+        run: python3 -B tools/ci/coinstalled-build.py recover
+
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Install Android SDK, NDK and Gradle
+        run: python3 -B tools/ci/coinstalled-build.py toolchain
+
+      - name: Verify source and PRoot launch regressions
+        run: |
+          python3 -B tools/ci/check-source-integrity.py
+          python3 -B -m unittest discover -s tools/ci -p 'test_proot_launch_environment.py' -v
+
+      - name: Build the co-installed debug APK
+        env:
+          PACKAGE_ID: ${{ inputs.package_id }}
+        run: python3 -B tools/ci/coinstalled-build.py build
+
+      - name: Verify the produced APK
+        env:
+          PACKAGE_ID: ${{ inputs.package_id }}
+        run: python3 -B tools/ci/coinstalled-build.py verify
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: coinstalled-debug-apk
+          path: |
+            work/coinstall/out/*.apk
+            work/coinstall/out/report.json
+          retention-days: 7
+          compression-level: 0
+          if-no-files-found: error

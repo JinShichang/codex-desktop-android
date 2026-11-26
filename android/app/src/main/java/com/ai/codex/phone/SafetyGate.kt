@@ -113,7 +113,7 @@ enum class ConfirmMode(val wire: String) {
  * the model, not this code). Public so the screen reader can mark `⚠` with the same word list.
  */
 object SafetyRules {
-    const val OWN_PACKAGE = "com.ai.codex"
+    val OWN_PACKAGE: String = com.ai.codex.BuildConfig.APPLICATION_ID
 
     /**
      * The word that makes tapping [label] sensitive, or null. Delegates to [SensitiveWords] (shared

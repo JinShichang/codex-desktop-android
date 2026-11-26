@@ -5,7 +5,7 @@ android {
     compileSdk 37
     ndkVersion '29.0.14206865'
     defaultConfig {
-        applicationId 'com.ai.codex'
+        applicationId providers.gradleProperty('codexApplicationId').getOrElse('com.ai.codex')
         minSdk 30
         targetSdk 37
         versionCode providers.gradleProperty('codexVersionCode').map { it.toInteger() }.getOrElse(60)
@@ -23,7 +23,13 @@ android {
     sourceSets.debug.jniLibs.srcDirs = [providers.gradleProperty('codexDebugJni').getOrElse('../native/debug')]
     externalNativeBuild { cmake { path '../install-native/CMakeLists.txt'; version '3.22.1' } }
     buildTypes { debug { debuggable true } }
-    buildFeatures { aidl true }
+    buildFeatures {
+        aidl true
+        // The application id is a build input (see codexApplicationId); code
+        // that must identify its own installed package reads it from here instead
+        // of a literal, so a co-installed build keeps working.
+        buildConfig true
+    }
 }
 dependencies {
     coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs_nio:2.1.5'

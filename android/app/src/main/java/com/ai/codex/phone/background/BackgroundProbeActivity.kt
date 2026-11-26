@@ -140,8 +140,8 @@ class BackgroundProbeActivity : Activity() {
 
 /** Private Binder messages, never marshalled into the adb/root byte stream. */
 internal object ProbeActivityContract {
-    const val PACKAGE = "com.ai.codex"
-    const val ACTIVITY = "$PACKAGE.phone.background.BackgroundProbeActivity"
+    val PACKAGE: String = com.ai.codex.BuildConfig.APPLICATION_ID
+    val ACTIVITY: String = "$PACKAGE.phone.background.BackgroundProbeActivity"
     const val RECEIVER = "receiver"
     const val NONCE = "nonce"
     const val DISPLAY = "display"

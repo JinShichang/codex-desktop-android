@@ -24,7 +24,7 @@ public final class CodexRootChannel {
             throw new DeviceCommandPolicy.Blocked("installed_apk_unverified");
         if (!main.equals("com.ai.codex.CodexRootCommandMain"))
             throw new DeviceCommandPolicy.Blocked("root_entry_not_allowed");
-        return "CLASSPATH='"+apk+"' /system/bin/app_process /system/bin "+main+" "+c.getApplicationInfo().uid;
+        return "CLASSPATH='"+apk+"' /system/bin/app_process /system/bin "+main+" "+c.getApplicationInfo().uid+" "+c.getPackageName();
     }
     public static JSONObject execute(Context c,JSONObject request,boolean fileCommand) throws Exception {
         CodexDeviceFeatures.require(c,"root");

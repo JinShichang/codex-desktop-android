@@ -9,9 +9,12 @@ public final class CodexRootCommandMain {
         Thread deadline = startDeadline(20);
         String stage="root_uid";
         try {
-            if (android.os.Process.myUid()!=0 || args.length!=1) throw new SecurityException();
+            if (android.os.Process.myUid()!=0 || (args.length!=1 && args.length!=2)) throw new SecurityException();
+            // The caller passes its real application id so a co-installed build with a
+            // different package name still resolves its own installed APK.
+            String packageName=args.length==2?args[1]:"com.ai.codex";
             stage="installed_context";
-            android.content.Context context=CodexPrivilegedContext.installed(Integer.parseInt(args[0]));
+            android.content.Context context=CodexPrivilegedContext.installed(Integer.parseInt(args[0]),packageName);
             stage="request_framing";
             ByteArrayOutputStream bytes=new ByteArrayOutputStream(); boolean framed=false;
             for (int i=0;i<32768;i++) { int value=System.in.read(); if (value<0) break;
