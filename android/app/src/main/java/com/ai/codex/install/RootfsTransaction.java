@@ -323,7 +323,18 @@ public final class RootfsTransaction implements AutoCloseable {
     }
 
     private void syncTree(Path root) throws IOException {
+        // Virtual trees the guest mounts must not be walked: their contents are
+        // owned by the kernel or by host processes, so syncDirectory would refuse
+        // them, and fsync on a procfs entry is meaningless. The launcher detaches
+        // them too, but a still-exiting guest must not break activation.
+        java.util.Set<String> skipped = java.util.Set.of("proc", "sys", "dev", "apex");
         Files.walkFileTree(root, new SimpleFileVisitor<>() {
+            @Override public FileVisitResult preVisitDirectory(Path directory, BasicFileAttributes attributes) {
+                if (!directory.equals(root) && skipped.contains(directory.getFileName().toString())
+                        && directory.getParent() != null && directory.getParent().equals(root))
+                    return FileVisitResult.SKIP_SUBTREE;
+                return FileVisitResult.CONTINUE;
+            }
             @Override public FileVisitResult visitFile(Path file, BasicFileAttributes attributes) throws IOException {
                 if (attributes.isRegularFile()) {
                     try (FileChannel channel = FileChannel.open(file, StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS)) { channel.force(true); }

@@ -54,6 +54,28 @@ class ChrootLauncherTest(unittest.TestCase):
         self.assertEqual(0, result.returncode, result.stdout)
 
 
+class GuestCleanupTest(unittest.TestCase):
+    """The launcher must leave the guest tree as the app owns it.
+
+    The installer walks the prepared root and refuses any entry owned by another
+    uid; folders a root-privileged guest created would fail that check, and a
+    still-attached bind mount would expose kernel-owned /proc entries to it.
+    """
+
+    def setUp(self):
+        self.script = LAUNCHER.read_text(encoding="utf-8")
+
+    def test_ownership_is_restored_before_exit(self):
+        self.assertIn("restore_ownership", self.script)
+        self.assertIn('chown -R "$uid:$uid"', self.script)
+        # The call must come after the guest command, not just the definition.
+        self.assertGreater(self.script.rindex("restore_ownership"),
+                           self.script.index("timeout -k 5"))
+
+    def test_namespace_mounts_are_detached(self):
+        self.assertIn('umount "$root/$target"', self.script)
+
+
 class ChrootChannelTest(unittest.TestCase):
     def setUp(self):
         self.java = CHANNEL.read_text(encoding="utf-8")

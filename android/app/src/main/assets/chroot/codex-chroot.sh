@@ -99,15 +99,36 @@ fi
 
 [ -f "$root/etc/hostname" ] || echo codex > "$root/etc/hostname"
 
+# Everything the guest leaves behind must still belong to the app: the installer
+# later walks this tree and refuses any entry owned by another uid (folders the
+# guest created as root included). Hand ownership back before returning.
+restore_ownership() {
+    for directory in proc sys dev dev/pts apex; do
+        [ -d "$root/$directory" ] && chown "$uid:$uid" "$root/$directory" 2>/dev/null || true
+    done
+    # Only the mount points the guest may have written into.
+    for directory in tmp home; do
+        [ -d "$root/$directory" ] && chown -R "$uid:$uid" "$root/$directory" 2>/dev/null || true
+    done
+    # Detach this namespace'"'"'s mounts so a later walk sees plain directories.
+    for target in proc sys dev/pts dev apex; do
+        umount "$root/$target" 2>/dev/null || true
+    done
+}
+
 # Android'"'"'s /system/bin/chroot is toybox and has no --userspec, so the identity
 # switch happens inside the guest with its own setpriv (util-linux). Doing it
 # after chroot also means the guest passwd/group database is the source of truth.
 cd "$root"
-exec timeout -k 5 "$seconds" /system/bin/chroot "$root" \
+set +e
+timeout -k 5 "$seconds" /system/bin/chroot "$root" \
     /usr/bin/setpriv --reuid "$uid" --regid "$uid" --clear-groups \
     /usr/bin/env -i HOME="$home" USER=codex LOGNAME=codex \
         PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 \
         TERM=xterm-256color \
         ${CODEX_GUEST_ENV:-} \
         "$@"
+status=$?
+restore_ownership
+exit "$status"
 ' codex-chroot "$@"
