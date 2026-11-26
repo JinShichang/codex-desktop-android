@@ -48,6 +48,41 @@ static int tolerated_seccomp(void) {
     return mode == 2 || mode == 0;
 }
 
+/* COM_AI_CODEX_ALLOW_SIBLING_PROC_POPULATION
+ *
+ * Android mounts /proc with hidepid=invisible on this device. With that mount,
+ * proc_pid_permission() calls ptrace_may_access(target, PTRACE_MODE_READ_FSCREDS)
+ * for a sibling process, and ptrace_may_access rejects the read when the *target*
+ * is not dumpable. Zygote clears dumpable (PR_SET_DUMPABLE 0) for ordinary
+ * application processes, so the two processes sharing this application UID cannot
+ * read each other's /proc/<pid>/stat even though their uids, gids and SELinux
+ * domain are identical.
+ *
+ * Measured on the target device (OnePlus 13, Android 15, hidepid=invisible):
+ *   root, or a process left in the u:r:ksu:s0 domain -> reads the sibling stat
+ *   uid 10415 from the app's own untrusted_app domain -> /proc/<pid>/stat ENOENT
+ *   the same uid leaking its *own* /proc/self/stat, or its own children -> fine
+ * A control experiment in the KSU domain was readable regardless of its dumpable
+ * value, which confirms the SELinux domain, not dumpable alone, decides this; the
+ * application processes are the ones stuck in untrusted_app.
+ *
+ * AndroidProcessPopulation.capture() therefore could not pin the main process's
+ * kernel start time, and every launch failed with
+ *   java.nio.file.NoSuchFileException: /proc/<pid>/stat
+ * -> qualified_native_deployment_unavailable.
+ *
+ * This entry point restores ONLY that visibility, by making the calling process
+ * dumpable again from inside its own process (dumpable is a property of the
+ * target, so the :runtime process cannot do this for the main process). Both
+ * application processes call it for themselves before the population is captured.
+ *
+ * Deliberate, documented weakening: a same-UID process can now ptrace this one,
+ * and the kernel may write a core image. It does not grant privileges: the
+ * transport admission still requires the exact application uid/gid triple,
+ * untouched no-new-privs, empty capability sets, and the captured identities are
+ * still read from the kernel. It must not be presented as equivalent to the
+ * upstream sandbox.
+ */
 static int admitted_identity(uid_t application_uid) {
     uid_t real, effective, saved;
     gid_t greal, geffective, gsaved;
@@ -112,6 +147,21 @@ static int fixed_arguments(const char *entry, char *const argv[], int count, uid
 static void failure(JNIEnv *env, const char *message) {
     jclass type = (*env)->FindClass(env, "java/io/IOException");
     if (type != NULL) (*env)->ThrowNew(env, type, message);
+}
+
+/* Restore this process's own dumpable flag so its siblings become visible on
+ * Android's hidepid=invisible /proc mount. See the comment above. Returns the
+ * flag the kernel reports afterwards (1 on success), or -1 with an IOException. */
+JNIEXPORT jint JNICALL Java_com_ai_codex_shizukuexec_AppNativeSpawn_makeSiblingVisible(
+        JNIEnv *env, jclass cls) {
+    (void)cls;
+    if (prctl(PR_SET_DUMPABLE, 1, 0, 0, 0) != 0) {
+        failure(env, "Could not make this application process dumpable");
+        return -1;
+    }
+    /* Report what the kernel actually recorded, so a build can prove the change
+     * took effect instead of assuming it. */
+    return prctl(PR_GET_DUMPABLE, 0, 0, 0, 0);
 }
 
 JNIEXPORT jint JNICALL Java_com_ai_codex_shizukuexec_AppNativeSpawn_launch(

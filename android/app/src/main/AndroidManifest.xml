@@ -24,7 +24,7 @@
         <intent><action android:name="android.intent.action.SENDTO" /><data android:scheme="smsto" /></intent>
     </queries>
     <uses-permission android:name="moe.shizuku.manager.permission.API_V23" />
-    <application android:label="@string/codex_name" android:icon="@drawable/codex_icon" android:roundIcon="@drawable/codex_icon" android:allowBackup="false" android:extractNativeLibs="true" tools:replace="android:label,android:icon,android:roundIcon">
+    <application android:name=".CodexApplication" android:label="@string/codex_name" android:icon="@drawable/codex_icon" android:roundIcon="@drawable/codex_icon" android:allowBackup="false" android:extractNativeLibs="true" tools:replace="android:label,android:icon,android:roundIcon">
         <provider android:name=".CodexDocumentsProvider" android:authorities="${applicationId}.documents"
             android:exported="true" android:grantUriPermissions="true" android:permission="android.permission.MANAGE_DOCUMENTS">
             <intent-filter><action android:name="android.content.action.DOCUMENTS_PROVIDER" /></intent-filter>

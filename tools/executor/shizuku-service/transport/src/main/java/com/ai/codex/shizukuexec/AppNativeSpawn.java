@@ -7,4 +7,6 @@ final class AppNativeSpawn {
     static native int launch(String executable, String[] argv, int applicationUid, String canonicalData,
             int input, int output, int report, int control);
     static native int waitChild(int pid);
+    /** Restores this process's dumpable flag; returns what the kernel reports. */
+    static native int makeSiblingVisible();
 }

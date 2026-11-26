@@ -308,6 +308,62 @@ class BuildTypeTest(unittest.TestCase):
                 self.assertIn(":shizukuTransport:", line, line.strip())
 
 
+class SiblingProcessVisibilityTest(unittest.TestCase):
+    """Android hides same-UID siblings, so the executor cannot pin their identity.
+
+    Android mounts /proc with hidepid=invisible on this device, and
+    proc_pid_permission() only lets a sibling be read when the *target* is
+    dumpable. Zygote clears dumpable for ordinary application processes, so
+    :runtime could not read the main process's /proc/<pid>/stat. Every launch
+    therefore failed with
+      java.nio.file.NoSuchFileException: /proc/<pid>/stat
+      -> qualified_native_deployment_unavailable
+    Measured: root and the u:r:ksu:s0 domain could read it, the app's own
+    untrusted_app domain could not, while reading its own /proc/self/stat or a
+    child it had just forked worked. This build restores the flag per process.
+
+    The weakening must stay narrowly scoped and documented, and the executor's
+    other admission conditions must remain untouched.
+    """
+
+    def setUp(self):
+        self.c = (ROOT / "tools" / "executor" / "shizuku-service" / "transport"
+                  / "src" / "main" / "cpp" / "app-spawn.c").read_text(encoding="utf-8")
+        self.java = (ROOT / "tools" / "executor" / "shizuku-service" / "transport"
+                     / "src" / "main" / "java" / "com" / "ai" / "codex" / "shizukuexec"
+                     / "SiblingProcessVisibility.java").read_text(encoding="utf-8")
+
+    def test_only_the_dumpable_flag_is_restored(self):
+        self.assertIn("AppNativeSpawn_makeSiblingVisible", self.c)
+        self.assertIn("prctl(PR_SET_DUMPABLE, 1, 0, 0, 0)", self.c)
+        # The result is read back from the kernel instead of assumed.
+        self.assertIn("prctl(PR_GET_DUMPABLE, 0, 0, 0, 0)", self.c)
+
+    def test_admission_conditions_are_not_relaxed(self):
+        # Restoring visibility must not become a way to skip identity checks.
+        for condition in ("real != application_uid", "effective != real", "saved != real",
+                          "greal != application_uid", "PR_GET_NO_NEW_PRIVS"):
+            self.assertIn(condition, self.c)
+        self.assertIn("capabilities[i].effective", self.c)
+
+    def test_weakening_is_documented_and_bounded(self):
+        self.assertIn("COM_AI_CODEX_ALLOW_SIBLING_PROC_POPULATION", self.c)
+        self.assertIn("must not be presented as equivalent", self.c)
+        # Only the digest-verified installed library is loaded.
+        self.assertIn("InstalledLibrary.verify", self.java)
+        self.assertIn("libcodex_app_transport.so", self.java)
+
+    def test_every_process_restores_it_for_itself(self):
+        # dumpable is a property of the target, so :runtime cannot do it for the
+        # main process; the Application subclass runs in both processes.
+        application = (ROOT / "android" / "app" / "src" / "main" / "java" / "com"
+                       / "ai" / "codex" / "CodexApplication.java").read_text(encoding="utf-8")
+        manifest = (ROOT / "android" / "app" / "src" / "main"
+                    / "AndroidManifest.xml").read_text(encoding="utf-8")
+        self.assertIn("SiblingProcessVisibility.restore", application)
+        self.assertIn('android:name=".CodexApplication"', manifest)
+
+
 class SeccompToleranceTest(unittest.TestCase):
     """Admission accepts a KernelSU-unfiltered sandbox, and only that.
 
