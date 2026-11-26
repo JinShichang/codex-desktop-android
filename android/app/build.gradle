@@ -48,6 +48,33 @@ dependencies {
     testImplementation 'org.json:json:20260719'
 }
 
+// Android substitutes ${applicationId} only in AndroidManifest.xml; inside a
+// res/xml resource it stays a literal, which turned shortcut intents into
+// "${applicationId}/com.ai.codex.AndroidToolsActivity" and made every pinned
+// shortcut fail to launch. Rewrite the placeholder with the real id on each
+// build so a co-installed build addresses its own components.
+def codexShortcutSource = file('src/main/res-template/codex_shortcuts.xml')
+def codexShortcutOutput = layout.buildDirectory.dir('generated/codexShortcuts')
+def generateCodexShortcuts = tasks.register('generateCodexShortcuts') {
+    def applicationIdProvider = providers.gradleProperty('codexApplicationId').orElse('com.ai.codex')
+    inputs.file(codexShortcutSource)
+    inputs.property('applicationId', applicationIdProvider)
+    outputDir = codexShortcutOutput
+    outputs.dir(outputDir)
+    doLast {
+        def template = codexShortcutSource.getAsFile().text
+        def resolved = template.replace('__CODEX_APPLICATION_ID__', applicationIdProvider.get())
+        if (resolved.contains('__CODEX_APPLICATION_ID__'))
+            throw new GradleException('Shortcut template still contains its placeholder')
+        def target = new File(outputDir.get().asFile, 'xml/codex_shortcuts.xml')
+        target.parentFile.mkdirs()
+        target.text = resolved
+    }
+}
+androidComponents.onVariants(androidComponents.selector().all()) { variant ->
+    variant.sources.res?.addGeneratedSourceDirectory(generateCodexShortcuts) { it.outputDir }
+}
+
 // A matched pair of GNU controller/Code Mode binaries is installed separately
 // from the immutable Bionic executor. Existing projects and credentials stay put.
 // Full APKs can keep only descriptors here and extract both payloads from the

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  targetPackage is generated at build time.
+
+  Android only substitutes ${applicationId} inside AndroidManifest.xml; in a
+  res/xml resource it stays a literal, which produced component names like
+  "${applicationId}/com.ai.codex.AndroidToolsActivity" and made every pinned
+  shortcut fail with "could not read application data". The :app Gradle project
+  therefore rewrites this file from res/xml-template/codex_shortcuts.xml on each
+  build (see the generateCodexShortcuts task), using the real application id.
+
+  Keep this placeholder file present so resource references stay resolvable even
+  before the task runs.
+-->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut android:shortcutId="android_tools" android:enabled="true"
+        android:icon="@drawable/lorie_ic_settings" android:shortcutShortLabel="@string/codex_android_tools_shortcut">
+        <intent android:action="android.intent.action.MAIN" android:targetPackage="__CODEX_APPLICATION_ID__" android:targetClass="com.ai.codex.AndroidToolsActivity" />
+    </shortcut>
+    <shortcut android:shortcutId="display_settings" android:enabled="true"
+        android:icon="@drawable/lorie_ic_settings" android:shortcutShortLabel="@string/codex_settings_shortcut">
+        <intent android:action="android.intent.action.MAIN" android:targetPackage="__CODEX_APPLICATION_ID__" android:targetClass="com.termux.x11.LoriePreferences" />
+    </shortcut>
+</shortcuts>
