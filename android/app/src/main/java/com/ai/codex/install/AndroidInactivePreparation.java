@@ -215,13 +215,12 @@ public final class AndroidInactivePreparation {
                 journal.vaultPrepared(vaultHash);
             else if(!vaultHash.equals(journal.value("vaultSha256"))) throw new IOException("Inactive vault ciphertext changed");
             if(journal.step()==InactivePreparationJournal.Step.COLLECTION_PREPARED) verifyCollectionFiles(data,journal,storage);
-            ProcessBuilder process=guestProcess(context,root,account,nativeDirectory,storage);
-            // PRoot now walks the portable PTRACE_SYSCALL path (see
-            // ProotEnvironment), so this step actually runs instead of dying at
-            // once. Launching gnome-keyring-daemon on a private bus and creating
-            // the collection takes well over the previous 60 s bound on a phone
-            // doing its first install; keep a bound, but one that covers it.
-            String output=SecretPipeProcess.run(process,credential,KEYRING_PREPARATION_TIMEOUT_MS);
+            // Launch the guest initializer. Real chroot is tried first: PRoot's
+            // seccomp acceleration dies on the second guest exec (SIGSEGV) and
+            // its portable PTRACE_SYSCALL path never lets gnome-keyring-daemon
+            // establish a private bus, so keyring preparation could not finish.
+            // PRoot remains the fallback for devices without root.
+            String output=runKeyringInitializer(context,root,account,nativeDirectory,storage,noBackup,credential);
             credential=null; // SecretPipeProcess erased the exact transferred array.
             JSONObject receipt=receipt(output);
             String intentHash=receipt.getString("intentSha256"),collectionId=receipt.getString("installationId");
@@ -267,6 +266,42 @@ public final class AndroidInactivePreparation {
         if(!storage.identity(data).equals(journal.value("dataIdentity"))) throw new IOException("Prepared collection directory changed");
         requireHash(data.resolve(".codex-keyring-intent.json"),journal.value("collectionIntentSha256"),storage,4096,true);
     }
+    /** Run the packaged keyring initializer, preferring real chroot over PRoot.
+     *
+     * <p>Chroot needs root and a prepared guest tree; both are verified before
+     * use. When either is absent the PRoot path is kept unchanged. The
+     * credential always travels over an anonymous pipe, exactly as before.
+     */
+    private static String runKeyringInitializer(Context context,Path root,GuestIdentity account,
+            Path nativeDirectory,Storage storage,Path noBackup,byte[] credential) throws Exception {
+        if (CodexChrootChannel.isAvailable(context)) {
+            java.io.File guestRoot=new java.io.File(root.toUri().getPath());
+            // The guest runtime directory must exist inside the root and belong
+            // to the guest account, exactly as the PRoot launch prepares its
+            // own private /tmp/runtime (see guestProcess below).
+            Path runtimeRoot=root.resolve("tmp/runtime");
+            if(!Files.isDirectory(runtimeRoot,LinkOption.NOFOLLOW_LINKS)) {
+                Files.createDirectories(runtimeRoot);
+                Files.setPosixFilePermissions(runtimeRoot,PosixFilePermissions.fromString("rwx------"));
+            }
+            // The chroot switch uses the guest's own passwd entry; it must be
+            // this installed application's uid, or the receipt cannot match.
+            if(account.uid!=android.os.Process.myUid())
+                throw new IOException("Chroot guest identity does not match the application");
+            List<String> command=List.of("/usr/bin/python3","-B","/usr/local/lib/codex/install/supervise_keyring.py");
+            return CodexChrootChannel.runGuest(context,guestRoot,account.uid,account.home,
+                KEYRING_PREPARATION_TIMEOUT_MS,
+                List.of("XDG_RUNTIME_DIR=/tmp/runtime"),
+                List.of(new java.io.File(noBackup.toUri().getPath())),
+                command,credential);
+        }
+        ProcessBuilder process=guestProcess(context,root,account,nativeDirectory,storage);
+        // PRoot now walks the portable PTRACE_SYSCALL path (see
+        // ProotEnvironment), so this step actually runs instead of dying at
+        // once. Keep a bound that covers a cold first-install run.
+        return SecretPipeProcess.run(process,credential,KEYRING_PREPARATION_TIMEOUT_MS);
+    }
+
     private static ProcessBuilder guestProcess(Context context,Path root,GuestIdentity account,Path nativeDirectory,Storage storage) throws Exception {
         // Android gives cache/ a separate per-app cache GID and group-write
         // access on current devices. Keep the strict managed-container check;

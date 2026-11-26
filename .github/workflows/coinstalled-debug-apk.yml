@@ -63,6 +63,7 @@ jobs:
         run: |
           python3 -B tools/ci/check-source-integrity.py
           python3 -B -m unittest discover -s tools/ci -p 'test_proot_launch_environment.py' -v
+          python3 -B -m unittest discover -s tools/ci -p 'test_chroot_backend.py' -v
 
       - name: Build the co-installed debug APK
         env:
