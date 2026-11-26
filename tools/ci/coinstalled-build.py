@@ -120,7 +120,12 @@ def extract_payload(apk: Path):
             if not name.startswith("assets/") or name.endswith("/"):
                 continue
             if name.startswith("assets/phone-runtime/"):
-                target = PAYLOAD / "phone-image" / name[len("assets/"):]
+                # Gradle renames the archive to .tgz itself (AGP would otherwise
+                # expand a .gz asset); the staged input must keep its true name.
+                relative = name[len("assets/"):].replace(
+                    "phone-runtime/codex-phone-rootfs.tgz",
+                    "phone-runtime/codex-phone-rootfs.tar.gz")
+                target = PAYLOAD / "phone-image" / relative
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_bytes(archive.read(name))
                 image_members += 1
