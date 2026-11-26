@@ -195,5 +195,26 @@ class SmokeTestBackendTest(unittest.TestCase):
         self.assertNotIn('text.contains("codex-cli")', text)
 
 
+class RewriteQualificationTest(unittest.TestCase):
+    """Rewriting the executor payload must refresh its pinned digests.
+
+    codex-executor-qualification.json records the SHA-256 of the deployment and
+    launch assets. Rewriting the application id changed those bytes but left the
+    recorded digests stale, so the app refused to start the executor with
+    "Native qualification digest mismatch".
+    """
+
+    def setUp(self):
+        self.text = (ROOT / "tools/workstation/rewrite-application-id.py").read_text(encoding="utf-8")
+
+    def test_qualification_asset_is_rewritten(self):
+        self.assertIn("codex-executor-qualification.json", self.text)
+
+    def test_pinned_digests_are_refreshed(self):
+        for field in ("deploymentSha256", "sourceManifestSha256",
+                      "evidenceSha256", "appLaunchBuildSha256"):
+            self.assertIn(field, self.text)
+
+
 if __name__ == "__main__":
     unittest.main()

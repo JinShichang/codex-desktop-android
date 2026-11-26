@@ -30,6 +30,7 @@ TEXT_ASSETS = (
     "codex-executor/codex_app_bootstrap.py",
     "codex-executor/codex_native_bootstrap.py",
     "codex-executor/tools/executor/native_session_recovery.py",
+    "codex-executor-qualification.json",
     "codex-python-runtime.json",
     "codex-tools/agent-environment.v1.json",
     "codex-tools/codex_tools.py",
@@ -74,6 +75,27 @@ def rewrite(assets, old, new):
     runtime = json.loads(manifest.read_text(encoding="utf-8"))
     if new not in runtime.get("runtimeHome", ""):
         raise SystemExit("codex-python-runtime runtimeHome was not rewritten")
+
+    # codex-executor-qualification.json pins the digests of the assets rewritten
+    # above. Leaving them stale made the app refuse to start the executor with
+    # "Native qualification digest mismatch", so refresh exactly those fields.
+    qualification_path = assets / "codex-executor-qualification.json"
+    qualification = json.loads(qualification_path.read_text(encoding="utf-8"))
+    refreshed = {}
+    for field, asset in (("deploymentSha256", "codex-executor-deployment.json"),
+                         ("sourceManifestSha256", "codex-executor-manifest.json"),
+                         ("evidenceSha256", "codex-executor-evidence.json"),
+                         ("appLaunchBuildSha256", "codex-app-launch-build.json")):
+        if field not in qualification:
+            continue
+        actual = digest(assets / asset)
+        if qualification[field] != actual:
+            qualification[field] = actual
+            refreshed[field] = actual
+    if refreshed:
+        qualification_path.write_text(
+            json.dumps(qualification, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        changed.append("codex-executor-qualification.json (" + ", ".join(sorted(refreshed)) + ")")
     # A plain substring test would also match the new id when it extends the old
     # one (com.ai.codex -> com.ai.codex.dev), so require a non-identifier boundary.
     import re
