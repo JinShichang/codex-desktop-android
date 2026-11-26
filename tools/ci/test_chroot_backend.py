@@ -215,6 +215,13 @@ class RewriteQualificationTest(unittest.TestCase):
                       "evidenceSha256", "appLaunchBuildSha256"):
             self.assertIn(field, self.text)
 
+    def test_manifest_entry_digests_are_refreshed(self):
+        # The manifest lists every codex-executor/ source file with its digest;
+        # the admission loop verifies each one, so a rewritten script must have
+        # its entry refreshed before the manifest digest is recorded.
+        self.assertIn("codex-executor-manifest.json", self.text)
+        self.assertIn('entry["sha256"] = actual', self.text)
+
 
 if __name__ == "__main__":
     unittest.main()

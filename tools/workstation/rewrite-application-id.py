@@ -76,6 +76,28 @@ def rewrite(assets, old, new):
     if new not in runtime.get("runtimeHome", ""):
         raise SystemExit("codex-python-runtime runtimeHome was not rewritten")
 
+    # codex-executor-manifest.json pins every source file under codex-executor/.
+    # The rewrite touched some of them, so refresh those entries before the
+    # manifest digest itself is recorded below.
+    manifest_path = assets / "codex-executor-manifest.json"
+    manifest_files = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest_refreshed = []
+    for entry in manifest_files:
+        relative = entry.get("path")
+        if not isinstance(relative, str):
+            continue
+        source = assets / "codex-executor" / relative
+        if not source.is_file():
+            continue
+        actual = digest(source)
+        if entry.get("sha256") != actual:
+            entry["sha256"] = actual
+            manifest_refreshed.append(relative)
+    if manifest_refreshed:
+        manifest_path.write_text(
+            json.dumps(manifest_files, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        changed.append("codex-executor-manifest.json (" + ", ".join(sorted(manifest_refreshed)) + ")")
+
     # codex-executor-qualification.json pins the digests of the assets rewritten
     # above. Leaving them stale made the app refuse to start the executor with
     # "Native qualification digest mismatch", so refresh exactly those fields.
