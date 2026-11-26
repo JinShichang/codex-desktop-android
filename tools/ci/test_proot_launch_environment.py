@@ -80,6 +80,29 @@ class ProcessPopulationTest(unittest.TestCase):
         self.assertNotIn('"com.ai.codex".equals', self.text)
 
 
+class TransportJniReuseTest(unittest.TestCase):
+    """The packaged transport libraries must be the published bytes.
+
+    The :shizukuTransport module recompiles these two libraries, but the executor
+    inventory pins the published digests. Shipping the rebuild failed admission
+    with "Packaged native library digest mismatch", so the co-installed build
+    reuses the published pair and lets it win over the module output.
+    """
+
+    def setUp(self):
+        self.build = (ROOT / "tools/ci/coinstalled-build.py").read_text(encoding="utf-8")
+        self.gradle = (ROOT / "android/app/build.gradle").read_text(encoding="utf-8")
+
+    def test_published_transport_libraries_are_staged(self):
+        self.assertIn("transport-jni", self.build)
+        self.assertIn("libcodex_shizuku_transport.so", self.build)
+        self.assertIn("libcodex_bionic_cwd.so", self.build)
+
+    def test_gradle_accepts_and_prefers_them(self):
+        self.assertIn("codexTransportJni", self.gradle)
+        self.assertIn("pickFirsts.add", self.gradle)
+
+
 class PrivilegedPackagePatternTest(unittest.TestCase):
     """The root channel validates the package id with a real Java pattern.
 

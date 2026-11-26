@@ -76,6 +76,26 @@ androidComponents.onVariants(androidComponents.selector().all()) { variant ->
     variant.sources.res?.addGeneratedSourceDirectory(generateCodexShortcuts) { it.outputDir }
 }
 
+// The :shizukuTransport module compiles its two JNI libraries from source, but
+// the executor deployment inventory pins the *published* bytes of those same
+// libraries. Shipping the module's rebuild therefore failed admission with
+// "Packaged native library digest mismatch". When a matching pair is supplied,
+// it wins over the module output.
+def transportJni = providers.gradleProperty('codexTransportJni')
+if (transportJni.isPresent()) {
+    def supplied = file(transportJni.get()).canonicalFile
+    def required = ['libcodex_shizuku_transport.so', 'libcodex_bionic_cwd.so']
+    required.each { name ->
+        if (!new File(supplied, 'arm64-v8a/' + name).isFile())
+            throw new GradleException('Transport JNI input is incomplete: ' + name)
+    }
+    android.sourceSets.main.jniLibs.srcDir(supplied)
+    // The module contributes the same two names; keep exactly one copy, and make
+    // sure it is the supplied pair rather than the module rebuild.
+    android.packaging.jniLibs.pickFirsts.add('**/libcodex_shizuku_transport.so')
+    android.packaging.jniLibs.pickFirsts.add('**/libcodex_bionic_cwd.so')
+}
+
 // A matched pair of GNU controller/Code Mode binaries is installed separately
 // from the immutable Bionic executor. Existing projects and credentials stay put.
 // Full APKs can keep only descriptors here and extract both payloads from the

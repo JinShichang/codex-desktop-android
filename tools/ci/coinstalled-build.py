@@ -144,6 +144,16 @@ def extract_payload(apk: Path):
         raise SystemExit("Base APK lacks expected libraries: " + ", ".join(map(str, missing)))
     for name in RUNTIME_LIBS:
         (PAYLOAD / "runtime-five" / "arm64-v8a" / name).write_bytes(libraries[name])
+    # The transport libraries are rebuilt by the :shizukuTransport module, but
+    # the deployment inventory pins the *published* bytes. Stage the published
+    # copies so the packaged APK matches its own inventory instead of failing
+    # admission with "Packaged native library digest mismatch".
+    transport_dir = PAYLOAD / "transport-jni" / "arm64-v8a"
+    transport_dir.mkdir(parents=True, exist_ok=True)
+    for name in sorted(TRANSPORT_LIBS):
+        if name not in libraries:
+            raise SystemExit("Base APK lacks " + name)
+        (transport_dir / name).write_bytes(libraries[name])
     for name in needed:
         (PAYLOAD / "executor-jni" / "arm64-v8a" / name).write_bytes(libraries[name])
     # libXlorie.so is produced by the :lorie CMake project, which the co-installed
@@ -296,6 +306,9 @@ def build():
         f"-PcodexApplicationId={state['packageId']}",
         f"-PcodexRuntimeJni={state_payload['runtimeJni']}",
         f"-PcodexExecutorJni={state_payload['executorJni']}",
+        # The transport libraries come from the published APK: the module rebuilds
+        # them, and the deployment inventory pins the published bytes.
+        f"-PcodexTransportJni={PAYLOAD / 'transport-jni'}",
         f"-PcodexExecutorAssets={state_payload['executorAssets']}",
         "-PcodexRequireExecutor=true",
         # Ship the image *metadata* but not the 1.3 GB archive: the app then
