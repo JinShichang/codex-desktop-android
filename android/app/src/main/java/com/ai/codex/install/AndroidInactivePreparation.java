@@ -275,7 +275,9 @@ public final class AndroidInactivePreparation {
      */
     private static String runKeyringInitializer(Context context,Path root,GuestIdentity account,
             Path nativeDirectory,Storage storage,Path noBackup,byte[] credential) throws Exception {
-        if (CodexChrootChannel.isAvailable(context)) {
+        boolean chroot=CodexChrootChannel.isAvailable(context);
+        android.util.Log.i("CodexChroot","keyring initializer backend="+(chroot?"chroot":"proot"));
+        if (chroot) {
             java.io.File guestRoot=new java.io.File(root.toUri().getPath());
             // The guest runtime directory must exist inside the root and belong
             // to the guest account, exactly as the PRoot launch prepares its
