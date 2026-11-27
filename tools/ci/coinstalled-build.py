@@ -179,12 +179,12 @@ def extract_payload(apk: Path):
 
 
 def recover():
-    package_id = os.environ.get("PACKAGE_ID", "com.ai.codex.dev")
+    package_id = os.environ.get("PACKAGE_ID") or "com.ai.codex.dev"
     if not re.fullmatch(r"[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+", package_id):
         raise SystemExit("Invalid application id: " + package_id)
     if package_id == "com.ai.codex":
         raise SystemExit("The co-installed build must use a new application id")
-    version = os.environ.get("BASE_VERSION", BASE_VERSION)
+    version = os.environ.get("BASE_VERSION") or BASE_VERSION
     url = ("https://github.com/JinShichang/codex-desktop-android/releases/download/"
            + version + "/Codex-Android-" + version + "-full.apk")
     apk = fetch(url, WORK / "base" / f"{version}.apk", expected=BASE_APK_SHA256)
