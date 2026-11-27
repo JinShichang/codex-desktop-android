@@ -461,6 +461,15 @@ def build_python_cli(package_id: str) -> None:
             if alias.get("nativeLibrary") == record_name and alias.get("sha256") != actual:
                 alias["sha256"] = actual
                 touched += 1
+        # native_files[] is what the C admission hashes to produce its
+        # "native-inventory" stage; it must describe the rebuilt bytes too.
+        for native in runtime.get("nativeFiles", []):
+            if native.get("name") == record_name:
+                size = target.stat().st_size
+                if native.get("sha256") != actual or native.get("bytes") != size:
+                    native["sha256"] = actual
+                    native["bytes"] = size
+                    touched += 1
         if touched:
             runtime_path.write_text(json.dumps(runtime, indent=2, sort_keys=True) + "\n",
                                     encoding="utf-8")
