@@ -173,14 +173,34 @@ public final class AppNativeSession extends IExecutorSession.Stub {
             while ((value = stream.read()) != -1) {
                 if (value == '\n') {
                     if (++frames > SessionState.MAX_REPORTS) throw new IllegalStateException("Too many private lifecycle reports");
-                    state.report(line.toString(StandardCharsets.US_ASCII.name())); line.reset();
+                    String frame = line.toString(StandardCharsets.US_ASCII.name());
+                    try { state.report(frame); }
+                    catch (RuntimeException rejected) {
+                        /* Keep the strict protocol decision, but leave the rejected
+                         * frame and the kernel status in the log: a Python-level
+                         * failure otherwise only surfaces as "transportFailed" with
+                         * no diagnostic at all. */
+                        android.util.Log.e("Codex-executor", "Rejected private report frame: " + frame);
+                        throw rejected;
+                    }
+                    line.reset();
                 } else {
-                    if (value > 127 || line.size() >= 512) throw new IllegalStateException("Invalid private report frame");
+                    if (value > 127 || line.size() >= 512) {
+                        /* A Python traceback reaching this private channel is the
+                         * usual cause; record what arrived so the failure is
+                         * diagnosable from logcat alone. */
+                        android.util.Log.e("Codex-executor", "Malformed private frame: "
+                                + line.toString(StandardCharsets.US_ASCII.name()));
+                        throw new IllegalStateException("Invalid private report frame");
+                    }
                     line.write(value);
                 }
             }
             if (line.size() != 0) throw new IllegalStateException("Incomplete private lifecycle report");
-        } catch (Exception error) { state.fail(); requestCancel(); }
+        } catch (Exception error) {
+            android.util.Log.e("Codex-executor", "Private lifecycle stream failed", error);
+            state.fail(); requestCancel();
+        }
         try { state.reaped(AppNativeSpawn.waitChild(childPid)); }
         catch (Exception | LinkageError error) { state.fail(); requestCancel(); }
         if (state.releasable()) {

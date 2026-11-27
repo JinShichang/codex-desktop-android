@@ -404,4 +404,20 @@ def main(arguments):
     if len(arguments) != 5:
         raise ValueError("Installed native launch argument count differs")
     apk, uid, parent, nonce, launch_path = arguments
-    os._exit(asyncio.run(run(apk, int(uid), int(parent), nonce, launch_path)))
+    try:
+        os._exit(asyncio.run(run(apk, int(uid), int(parent), nonce, launch_path)))
+    except BaseException:
+        # run() already reports its own handled failures on the private channel.
+        # Anything reaching here escaped before that channel could be used (an
+        # import error, or a rejected diagnostic), and would otherwise leave the
+        # owner with a bare exit status and no cause. Best-effort: write the
+        # traceback beside the launch input, then keep the original status.
+        try:
+            import traceback
+            note = (DATA / "files" / "native-bootstrap-crash.txt")
+            note.write_text("package=" + DEFAULT_PACKAGE + "\n"
+                            + traceback.format_exc(limit=40), encoding="utf-8",
+                            errors="replace")
+        except BaseException:
+            pass
+        raise

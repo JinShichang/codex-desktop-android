@@ -84,4 +84,17 @@ def main(arguments):
     if len(arguments) != 5:
         raise ValueError("Installed application launch argument count differs")
     apk, uid, parent, nonce, launch_path = arguments
-    os._exit(asyncio.run(run(apk, int(uid), int(parent), nonce, launch_path)))
+    try:
+        os._exit(asyncio.run(run(apk, int(uid), int(parent), nonce, launch_path)))
+    except BaseException:
+        # native.run() reports its own handled failures on the private channel.
+        # Anything escaping before that channel is usable would otherwise end in a
+        # bare exit status with no cause at all, so record the traceback first.
+        try:
+            import traceback
+            from pathlib import Path as _Path
+            note = _Path("/data/user/0") / native.DEFAULT_PACKAGE / "files" / "native-bootstrap-crash.txt"
+            note.write_text(traceback.format_exc(limit=40), encoding="utf-8", errors="replace")
+        except BaseException:
+            pass
+        raise
