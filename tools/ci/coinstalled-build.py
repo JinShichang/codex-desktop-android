@@ -27,6 +27,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tarfile
 import urllib.request
 import zipfile
 
@@ -37,6 +38,10 @@ OUT = WORK / "out"
 BASE_VERSION = "v85"
 # Pinned from the published asset digest; a different APK is refused.
 BASE_APK_SHA256 = "d07eec662cfac91486468610b7eea6f16cc96f1ea1c9ba841652c44cf695cf74"
+# The admission binary compiles against OpenSSL's headers. Both values are the
+# pins stage-android-python.py already uses for the official Python runtime.
+OPENSSL_SHA256 = "a8c0d28a529ca480f9f36cf5792e2cd21984552a3c8e4aa11a24aa31aeac98e8"
+OPENSSL_URL = "https://github.com/openssl/openssl/releases/download/openssl-3.5.7/openssl-3.5.7.tar.gz"
 GRADLE_VERSION = "9.7.1"
 NDK_VERSION = "29.0.14206865"
 CMAKE_VERSION = "3.22.1"
@@ -159,10 +164,11 @@ def extract_payload(apk: Path):
             raise SystemExit("Base APK lacks " + name)
         (transport_dir / name).write_bytes(libraries[name])
     for name in needed:
-        if name == "libcodex_app_transport.so":
-            # Built from source by :shizukuTransport: it embeds this build's
-            # admission policy. Reusing the published copy would reinstate the
-            # upstream seccomp requirement and reject this device.
+        if name in ("libcodex_app_transport.so", "libcodex_app_bootstrap.so"):
+            # Both are compiled from source here. The transport embeds this build's
+            # admission policy; the bootstrap embeds the installed application id
+            # (its private data root), so reusing the published copy would keep
+            # pointing at the original package's directory.
             continue
         (PAYLOAD / "executor-jni" / "arm64-v8a" / name).write_bytes(libraries[name])
     # libXlorie.so is produced by the :lorie CMake project, which the co-installed
@@ -333,6 +339,105 @@ def record_transport_digest_from_apk(apk: Path) -> bool:
     return True
 
 
+def openssl_prefix() -> Path:
+    """Provide the OpenSSL headers native-bootstrap.c compiles against.
+
+    build-bootstrap-windows.py expects an official OpenSSL prefix (-I<prefix>/include);
+    upstream produces it on a Windows workstation, so it never existed in this Linux
+    CI. Taking it from the published APK is impossible: assets/bionic-python ships
+    lib/ but no include/. So the headers come from OpenSSL's own pinned release,
+    which stage-android-python.py already pins by SHA-256.
+
+    Only headers are needed: the admission binary links the already-packaged
+    libcrypto_python.so and uses nothing beyond EVP_* SHA-256. Generated headers
+    (opensslv.h, safestack.h, configuration.h, ...) are produced with the same
+    Perl rules the OpenSSL Makefile uses, so no compiler or make is required.
+    """
+    prefix = WORK / "openssl-prefix"
+    stamp = prefix / ".complete"
+    if stamp.is_file():
+        return prefix
+    source = WORK / "openssl-source"
+    if not (source / "Configure").is_file():
+        archive = fetch(OPENSSL_URL, WORK / "downloads" / "openssl.tar.gz", expected=OPENSSL_SHA256)
+        if source.exists():
+            shutil.rmtree(source)
+        source.mkdir(parents=True)
+        with tarfile.open(archive) as tar:
+            # The release tarball is rooted at openssl-<version>/; strip it so
+            # Configure sees its own source tree.
+            for member in tar.getmembers():
+                parts = member.name.split("/", 1)
+                if len(parts) != 2 or not parts[1]:
+                    continue
+                member.name = parts[1]
+                tar.extract(member, source, filter="data")
+    # Configure writes configuration.h and configdata.pm; a generic target is
+    # enough because only declarations are consumed, never compiled OpenSSL code.
+    subprocess.run(["perl", "./Configure", "linux-aarch64", "no-tests", "no-apps", "no-docs"],
+                   cwd=source, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, check=True)
+    # Every *.h.in is rendered by the same dofile generator the Makefile calls.
+    rendered = 0
+    for template in sorted((source / "include" / "openssl").glob("*.h.in")):
+        result = subprocess.run(["perl", "-I.", "-Mconfigdata", "util/dofile.pl", "-oMakefile",
+                                 str(template.relative_to(source))],
+                                cwd=source, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+        if result.returncode == 0 and result.stdout:
+            template.with_suffix("").write_text(result.stdout, encoding="utf-8")
+            rendered += 1
+    if not (source / "include" / "openssl" / "opensslv.h").is_file():
+        raise SystemExit("OpenSSL header generation produced no opensslv.h")
+    if prefix.exists():
+        shutil.rmtree(prefix)
+    shutil.copytree(source / "include", prefix / "include")
+    stamp.write_text(str(rendered) + "\n", encoding="utf-8")
+    log("bootstrap", "prepared OpenSSL headers (" + str(rendered) + " generated)")
+    return prefix
+
+
+def build_bootstrap(package_id: str) -> None:
+    """Compile the application bootstrap with this build's own package id.
+
+    The published libcodex_app_bootstrap.so hard-codes the original package's
+    private data root, so a co-installed build fails its check with
+    NativeAdmissionError "arguments" (errno 22) before Python ever starts.
+    Rebuilding it with -DCODEX_PACKAGE_ID makes the admission accept the actual
+    data directory.
+    """
+    runtime = json.loads((PAYLOAD / "executor-assets" / "codex-python-runtime.json").read_text())
+    inventory = WORK / "bootstrap-inventory"
+    inventory.mkdir(parents=True, exist_ok=True)
+    lines = ["/* Authenticated production inputs; the admission binary is hashed separately. */",
+             "static const struct runtime_file runtime_files[] = {"]
+    lines += ["    {%s, %d, %s}," % (json.dumps(item["path"]), item["bytes"], json.dumps(item["sha256"]))
+              for item in runtime["dataFiles"]]
+    lines += ["};", "static const struct runtime_alias runtime_aliases[] = {"]
+    lines += ["    {%s, %s}," % (json.dumps(item["path"]), json.dumps(item["nativeLibrary"]))
+              for item in runtime["runtimeAliases"]]
+    lines += ["};", "static const struct runtime_file native_files[] = {"]
+    lines += ["    {%s, %d, %s}," % (json.dumps(item["name"]), item["bytes"], json.dumps(item["sha256"]))
+              for item in runtime["nativeFiles"]]
+    lines += ["};", ""]
+    (inventory / "runtime-inventory.h").write_text("\n".join(lines), encoding="ascii")
+
+    env_json = json.loads((WORK / "env.json").read_text())
+    sdk = Path(env_json["sdk"])
+    ndk = sdk / "ndk" / NDK_VERSION
+    libraries = PAYLOAD / "executor-jni" / "arm64-v8a"
+    output = WORK / "bootstrap-build"
+    if output.exists():
+        shutil.rmtree(output)
+    run("bootstrap", [sys.executable, "-B", ROOT / "tools" / "executor" / "runas-runtime"
+                      / "build-bootstrap-windows.py", "--ndk", str(ndk),
+                      "--prefix", str(openssl_prefix()), "--inventory", str(inventory / "runtime-inventory.h"),
+                      "--libraries", str(libraries), "--output", str(output),
+                      "--launch-origin", "android-app", "--package-id", package_id])
+    # The produced library replaces the published one in the payload.
+    shutil.copy2(output / "libcodex_app_bootstrap.so",
+                 PAYLOAD / "executor-jni" / "arm64-v8a" / "libcodex_app_bootstrap.so")
+    log("build", "rebuilt libcodex_app_bootstrap.so for " + package_id)
+
+
 def build():
     state = json.loads((WORK / "state.json").read_text())
     env_json = json.loads((WORK / "env.json").read_text())
@@ -346,6 +451,8 @@ def build():
                        ANDROID_HOME=sdk, ANDROID_SDK_ROOT=sdk,
                        GRADLE_USER_HOME=str(WORK / "gradle-home"),
                        JAVA_HOME=os.environ["JAVA_HOME"])
+    # Rebuild the bootstrap with this package's data root before packaging.
+    build_bootstrap(state["packageId"])
     command = [
         gradle, "-p", str(ROOT / "android"), "assembleRelease", "--no-daemon", "--stacktrace",
         "-PcodexVersionCode=9001",

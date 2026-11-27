@@ -21,7 +21,15 @@
 struct runtime_file { const char *path; size_t size; const char *sha256; };
 struct runtime_alias { const char *path; const char *library; };
 #include "runtime-inventory.h"
-#define DATA "/data/user/0/com.ai.codex"
+/* The application id is a build input, not a literal: a co-installed build uses
+ * a different package name, so its private data root differs. The compiler
+ * supplies -DCODEX_PACKAGE_ID="com.ai.codex.dev"; the default keeps upstream's
+ * original package, and the /data/data spelling is derived from the same id. */
+#ifndef CODEX_PACKAGE_ID
+#define CODEX_PACKAGE_ID "com.ai.codex"
+#endif
+#define DATA "/data/user/0/" CODEX_PACKAGE_ID
+#define DATA_VIEW "/data/data/" CODEX_PACKAGE_ID
 #define FILES DATA "/files"
 #define RUNTIME_BASE FILES "/native-runtime-v1"
 #define ROOT RUNTIME_BASE "/python"
@@ -41,6 +49,30 @@ struct runtime_alias { const char *path; const char *library; };
 #else
 #error Unsupported native bootstrap launch origin
 #endif
+
+/* COM_AI_CODEX_ALLOW_UNFILTERED_SECCOMP
+ *
+ * Upstream requires the inherited seccomp filter to still be in place
+ * (PR_GET_SECCOMP == 2 for the application origin). On a device where this
+ * application is authorised by KernelSU, the manager deliberately strips that
+ * filter from its processes so privilege escalation can work, and PR_GET_SECCOMP
+ * reports 0.
+ *
+ * Measured on the target device (OnePlus 13, Android 15):
+ *   com.tencent.mm       (not KernelSU-authorised)  Seccomp 2 / filters 1
+ *   com.ai.codex.dev     (KernelSU-authorised)      Seccomp 0 / filters 0
+ *   com.ai.codex         (KernelSU-authorised)      Seccomp 0 / filters 0
+ *
+ * The guest runtime needs root obtained through that same authorisation, so the
+ * two requirements are mutually exclusive. This build accepts 0 as well, and
+ * nothing else: every other identity, ownership, capability and path condition
+ * below is still enforced unchanged. This is a deliberate, documented weakening
+ * for local builds only; it must not be presented as equivalent to upstream.
+ */
+static int tolerated_inherited_seccomp(int expected) {
+    int mode = prctl(PR_GET_SECCOMP, 0, 0, 0, 0);
+    return mode == expected || (expected == 2 && mode == 0);
+}
 
 static int refuse(const char *stage) {
     int error = errno;
@@ -127,7 +159,7 @@ static int application_data(uid_t uid, char *canonical) {
     struct stat declared, actual;
     char cwd[PATH_MAX];
     return realpath(DATA, canonical)
-        && (!strcmp(canonical, DATA) || !strcmp(canonical, "/data/data/com.ai.codex"))
+        && (!strcmp(canonical, DATA) || !strcmp(canonical, DATA_VIEW))
         && lstat(DATA, &declared) == 0 && lstat(canonical, &actual) == 0
         && S_ISDIR(declared.st_mode) && S_ISDIR(actual.st_mode)
         && declared.st_uid == uid && actual.st_uid == uid
@@ -149,14 +181,14 @@ int main(int argc, char **argv) {
         || sigemptyset(&deadline_signal) || sigaddset(&deadline_signal, SIGALRM)
         || sigprocmask(SIG_UNBLOCK, &deadline_signal, NULL)) return refuse("deadline");
     alarm(30);
-    if (argc != 8 || strcmp(argv[1], LAUNCH_FLAG) || strcmp(argv[3], "/data/user/0/com.ai.codex")
+    if (argc != 8 || strcmp(argv[1], LAUNCH_FLAG) || strcmp(argv[3], DATA)
         || strlen(argv[5]) != 32 || strspn(argv[5], "0123456789abcdef") != 32) return refuse("arguments");
     int expected = number(argv[2]), parent = number(argv[4]);
     uid_t ur = 0, ue = 0, us = 0; gid_t gr = 0, ge = 0, gs = 0;
     if (expected < 10000 || parent < 1 || getresuid(&ur, &ue, &us) || getresgid(&gr, &ge, &gs)
         || ur != (uid_t)expected || ue != ur || us != ur || gr != ur || ge != gr || gs != gr
         || getppid() != parent || prctl(PR_GET_NO_NEW_PRIVS, 0, 0, 0, 0) != 0
-        || prctl(PR_GET_SECCOMP, 0, 0, 0, 0) != INHERITED_SECCOMP) return refuse("identity");
+        || !tolerated_inherited_seccomp(INHERITED_SECCOMP)) return refuse("identity");
     struct __user_cap_header_struct caps_header = {.version = _LINUX_CAPABILITY_VERSION_3};
     struct __user_cap_data_struct caps[2] = {{0}, {0}};
     if (syscall(__NR_capget, &caps_header, caps)) return refuse("capabilities");

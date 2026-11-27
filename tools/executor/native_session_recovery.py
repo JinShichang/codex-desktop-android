@@ -7,6 +7,7 @@ all other processes of the application UID prevent recovery.
 """
 import errno
 import os
+import re
 
 APPLICATION_PROCESSES_SCHEMA = "codex.android-process-population.v1"
 APPLICATION_PROCESSES_SOURCE = "android.app.ActivityManager.getRunningAppProcesses"
@@ -14,10 +15,17 @@ APPLICATION_PROCESSES_SOURCE = "android.app.ActivityManager.getRunningAppProcess
 # deny /proc/sys/kernel/pid_max; the compile-time kernel ceiling is still exact
 # coverage (the sysctl cannot exceed it). It is not a guessed device PID limit.
 LINUX_PID_MAX_LIMIT = 4 * 1024 * 1024
+# An installed application id, optionally followed by one Android process suffix.
+_PROCESS_NAME = re.compile(r"[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+(?::[A-Za-z0-9_]+)?")
 
 
 def application_processes(value):
-    """Validate the complete OS-selected Java process inventory, without defaults."""
+    """Validate the complete OS-selected Java process inventory, without defaults.
+
+    Process names follow the installed application id, which a co-installed build
+    changes, so they are checked for shape and role rather than against the
+    original package literal: exactly one main process and one :runtime owner.
+    """
     if (type(value) is not dict or set(value) != {"schema", "source", "processes"}
             or value["schema"] != APPLICATION_PROCESSES_SCHEMA
             or value["source"] != APPLICATION_PROCESSES_SOURCE
@@ -28,13 +36,14 @@ def application_processes(value):
         if (type(entry) is not dict or set(entry) != {"pid", "startTimeTicks", "processName"}
                 or type(entry["pid"]) is not int or not 0 < entry["pid"] < LINUX_PID_MAX_LIMIT
                 or type(entry["startTimeTicks"]) is not int or entry["startTimeTicks"] <= 0
-                or entry["processName"] not in ("com.ai.codex", "com.ai.codex:runtime")
+                or type(entry["processName"]) is not str
+                or not _PROCESS_NAME.fullmatch(entry["processName"])
                 or entry["pid"] in pids or entry["processName"] in names):
             raise ValueError("Android process inventory contains an invalid or duplicate identity")
         pids.add(entry["pid"])
         names.add(entry["processName"])
         result.append(dict(entry))
-    if "com.ai.codex:runtime" not in names:
+    if not any(name.endswith(":runtime") for name in names):
         raise ValueError("Android process inventory lacks its runtime owner")
     return {"schema": APPLICATION_PROCESSES_SCHEMA, "source": APPLICATION_PROCESSES_SOURCE,
             "processes": result}
@@ -123,7 +132,7 @@ def verify_application_processes(value, parent_pid):
         if (observed["uids"] != (os.getuid(),) * 4
                 or observed["startTimeTicks"] != entry["startTimeTicks"]
                 or command != entry["processName"].encode("ascii")
-                or (entry["processName"] == "com.ai.codex:runtime" and entry["pid"] != parent_pid)):
+                or (entry["processName"].endswith(":runtime") and entry["pid"] != parent_pid)):
             raise PermissionError("Android process identity no longer matches its OS observation")
         if process_identity(entry["pid"]) != observed:
             raise RuntimeError("Android process identity changed during command validation")

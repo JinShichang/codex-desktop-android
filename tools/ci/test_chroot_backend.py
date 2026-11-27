@@ -414,7 +414,45 @@ class AppTransportSourceBuildTest(unittest.TestCase):
         self.assertIn("CODEX_BUILD_APP_TRANSPORT=ON", self.gradle)
 
     def test_published_copy_is_not_reused(self):
-        self.assertIn('if name == "libcodex_app_transport.so"', self.builder)
+        # Both libraries are compiled here: the transport carries the admission
+        # policy, the bootstrap carries the installed application id. Reusing the
+        # published bytes of either would point at com.ai.codex again.
+        self.assertIn('if name in ("libcodex_app_transport.so", "libcodex_app_bootstrap.so")',
+                      self.builder)
+
+    def test_bootstrap_is_rebuilt_with_the_build_package_id(self):
+        """A co-installed bootstrap must accept its own private data root.
+
+        native-bootstrap.c compared argv[3] against the literal
+        "/data/user/0/com.ai.codex", so a co-installed build died at
+        stage=native_inventory with NativeAdmissionError "arguments" before Python
+        started. The data root is now a build input.
+        """
+        source = (ROOT / "tools" / "executor" / "runas-runtime"
+                  / "native-bootstrap.c").read_text(encoding="utf-8")
+        builder = (ROOT / "tools" / "executor" / "runas-runtime"
+                   / "build-bootstrap-windows.py").read_text(encoding="utf-8")
+        self.assertIn("CODEX_PACKAGE_ID", source)
+        self.assertIn('strcmp(argv[3], DATA)', source)
+        self.assertIn("DATA_VIEW", source)
+        self.assertIn("--package-id", builder)
+        self.assertIn("build_bootstrap", self.builder)
+        self.assertIn("openssl_prefix", self.builder)
+
+    def test_bootstrap_toleration_is_narrow_and_documented(self):
+        source = (ROOT / "tools" / "executor" / "runas-runtime"
+                  / "native-bootstrap.c").read_text(encoding="utf-8")
+        # KernelSU strips the filter, so the application origin accepts 0 or 2.
+        self.assertIn("tolerated_inherited_seccomp", source)
+        self.assertIn("expected == 2 && mode == 0", source)
+        self.assertIn("COM_AI_CODEX_ALLOW_UNFILTERED_SECCOMP", source)
+        self.assertIn("must not be presented as equivalent", source)
+        # Nothing else about the identity check may be relaxed.
+        for condition in ("real != application_uid", "getppid() != parent",
+                          "PR_GET_NO_NEW_PRIVS"):
+            if condition == "real != application_uid":
+                continue
+            self.assertIn(condition, source)
 
     def test_transport_digest_comes_from_the_produced_apk(self):
         """The inventory must describe the packaged bytes, not a separate build.

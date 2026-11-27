@@ -26,7 +26,11 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--launch-origin", choices=("run-as", "android-app"), default="run-as",
                         help="Compile a distinct strict admission executable; default preserves run-as")
+    parser.add_argument("--package-id", default="com.ai.codex",
+                        help="Installed application id; its private data root is derived from it")
     args = parser.parse_args()
+    if not re.fullmatch(r"[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+", args.package_id):
+        raise ValueError("Invalid application id: " + args.package_id)
     ndk, prefix, inventory, libraries, output = [getattr(args, key).resolve() for key in (
         "ndk", "prefix", "inventory", "libraries", "output")]
     for path in (prefix, inventory, libraries, output):
@@ -57,6 +61,7 @@ def main():
                "-o", str(executable)]
     if app_origin:
         command.insert(1, "-DCODEX_ANDROID_APP=1")
+    command.insert(1, "-DCODEX_PACKAGE_ID=\"" + args.package_id + "\"")
     (output / "command.json").write_text(json.dumps(command, indent=2) + "\n")
     compiled = subprocess.run(command, capture_output=True, timeout=120)
     (output / "compiler.stdout").write_bytes(compiled.stdout)
@@ -72,7 +77,7 @@ def main():
     record = {"schema": "codex.native-admission-build.v1", "androidExecuted": False,
               "sourceSha256": digest(source), "inventorySha256": digest(header),
               "cryptoSha256": digest(crypto), "executableSha256": digest(executable),
-              "runtimeHome": "/data/user/0/com.ai.codex/files/native-runtime-v1/python",
+              "runtimeHome": "/data/user/0/" + args.package_id + "/files/native-runtime-v1/python",
               "ndk": "29.0.14206865"}
     if app_origin:
         record.update(schema="codex.native-admission-build.v2", launchOrigin="android-app",
