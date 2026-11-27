@@ -42,6 +42,12 @@ BASE_APK_SHA256 = "d07eec662cfac91486468610b7eea6f16cc96f1ea1c9ba841652c44cf695c
 # pins stage-android-python.py already uses for the official Python runtime.
 OPENSSL_SHA256 = "a8c0d28a529ca480f9f36cf5792e2cd21984552a3c8e4aa11a24aa31aeac98e8"
 OPENSSL_URL = "https://github.com/openssl/openssl/releases/download/openssl-3.5.7/openssl-3.5.7.tar.gz"
+# The interpreter entry bakes its deployment prefix in at build time. These are
+# the same official inputs stage-android-python.py pins.
+PYTHON_VERSION = "3.14.7"
+PYTHON_PACKAGE = "python-" + PYTHON_VERSION + "-aarch64-linux-android.tar.gz"
+PYTHON_SHA256 = "6d50cc3aa66e414a439594089bcdfb5f1264358155c70c1f00471c24cfb477fb"
+PYTHON_URL = "https://www.python.org/ftp/python/" + PYTHON_VERSION + "/" + PYTHON_PACKAGE
 GRADLE_VERSION = "9.7.1"
 NDK_VERSION = "29.0.14206865"
 CMAKE_VERSION = "3.22.1"
@@ -378,6 +384,75 @@ def sync_source_assets() -> None:
         log("recover", "synced reviewed executor sources: " + ", ".join(synced))
 
 
+def python_prefix() -> Path:
+    """Provide the official CPython Android prefix for rebuilding the CLI.
+
+    libcodex_python_cli.so bakes its deployment prefix in at build time:
+    PYTHONHOME is ignored under -I, so CODEX_PYTHON_HOME is the only source. The
+    published library names /data/user/0/com.ai.codex, which a co-installed build
+    cannot reach, and the packaged assets carry only lib/ (no include/ and no
+    libpython3.14.so). So the CLI is rebuilt against the official release archive,
+    whose SHA-256 is already pinned by stage-android-python.py.
+    """
+    prefix = WORK / "python-prefix"
+    stamp = prefix / ".complete"
+    if stamp.is_file():
+        return prefix
+    archive = fetch(PYTHON_URL, WORK / "downloads" / PYTHON_PACKAGE, expected=PYTHON_SHA256)
+    if prefix.exists():
+        shutil.rmtree(prefix)
+    prefix.mkdir(parents=True)
+    with tarfile.open(archive) as tar:
+        for member in tar.getmembers():
+            # Members are "./prefix/<path>"; keep only the prefix subtree.
+            name = member.name[2:] if member.name.startswith("./") else member.name
+            if not name.startswith("prefix/"):
+                continue
+            member.name = name[len("prefix/"):]
+            if not member.name:
+                continue
+            tar.extract(member, prefix, filter="data")
+    for required in (prefix / "include" / "python3.14" / "Python.h",
+                     prefix / "lib" / "libpython3.14.so"):
+        if not required.is_file():
+            raise SystemExit("Official CPython prefix lacks " + str(required.name))
+    stamp.write_text("ok\n", encoding="utf-8")
+    log("bootstrap", "prepared official CPython prefix")
+    return prefix
+
+
+def build_python_cli(package_id: str) -> None:
+    """Rebuild the interpreter entry so its baked-in prefix matches this build."""
+    env_json = json.loads((WORK / "env.json").read_text())
+    sdk = Path(env_json["sdk"])
+    runtime_home = "/data/user/0/" + package_id + "/files/native-runtime-v1/python"
+    environment = dict(os.environ, ANDROID_NDK_HOME=str(sdk / "ndk" / NDK_VERSION))
+    run("bootstrap", ["bash", str(ROOT / "tools" / "executor" / "bionic-runtime"
+                      / "build-python-cli.sh"), str(python_prefix()), runtime_home],
+        env=environment)
+    # build-python-cli.sh writes into a mktemp tree under repo/work and prints it.
+    produced = sorted(ROOT.glob("work/codex-bionic-python-*/libcodex_python_cli.so"),
+                      key=lambda p: p.stat().st_mtime)
+    if not produced:
+        raise SystemExit("Python CLI rebuild produced no library")
+    target = PAYLOAD / "executor-jni" / "arm64-v8a" / "libcodex_python_cli.so"
+    shutil.copy2(produced[-1], target)
+    record_name = "libcodex_python_cli.so"
+    deployment_path = PAYLOAD / "executor-assets" / "codex-executor-deployment.json"
+    deployment = json.loads(deployment_path.read_text(encoding="utf-8"))
+    actual = digest(target)
+    if deployment["nativeLibraries"].get(record_name) != actual:
+        deployment["nativeLibraries"][record_name] = actual
+        if deployment.get("pythonLibrary") == record_name:
+            deployment["pythonSha256"] = actual
+        deployment_path.write_text(json.dumps(deployment, indent=2, sort_keys=True) + "\n",
+                                   encoding="utf-8")
+        run("build", [sys.executable, "-B", ROOT / "tools" / "workstation"
+                      / "rewrite-application-id.py", "--assets", PAYLOAD / "executor-assets",
+                      "--from", "com.ai.codex", "--to", package_id])
+    log("build", "rebuilt " + record_name + " for " + runtime_home)
+
+
 def openssl_prefix() -> Path:
     """Provide the OpenSSL headers native-bootstrap.c compiles against.
 
@@ -506,7 +581,9 @@ def build():
                        ANDROID_HOME=sdk, ANDROID_SDK_ROOT=sdk,
                        GRADLE_USER_HOME=str(WORK / "gradle-home"),
                        JAVA_HOME=os.environ["JAVA_HOME"])
-    # Rebuild the bootstrap with this package's data root before packaging.
+    # Both installed entry points bake this build's package into themselves, so
+    # they are rebuilt before packaging rather than reused from the published APK.
+    build_python_cli(state["packageId"])
     build_bootstrap(state["packageId"])
     command = [
         gradle, "-p", str(ROOT / "android"), "assembleRelease", "--no-daemon", "--stacktrace",
