@@ -451,6 +451,20 @@ def verify():
             if marker not in blobs:
                 raise SystemExit("Packaged dex lacks the PRoot launch fix marker: " + marker.decode())
         report["prootFixMarkers"] = ["PROOT_NO_SECCOMP", "disableSeccompAcceleration"]
+        # The dumpable restore must survive packaging too: if the Application
+        # subclass or the visibility helper were dropped from the dex, siblings
+        # are hidden again and every native launch ends as
+        # qualified_native_deployment_unavailable. The transport library carries
+        # the prctl(PR_SET_DUMPABLE) call itself.
+        for marker in (b"SiblingProcessVisibility", b"CodexApplication"):
+            if marker not in blobs:
+                raise SystemExit("Packaged dex lacks the sibling-visibility fix marker: "
+                                 + marker.decode())
+        transport_member = "lib/arm64-v8a/libcodex_app_transport.so"
+        if transport_member not in names or b"makeSiblingVisible" not in archive.read(transport_member):
+            raise SystemExit("Packaged transport library lacks the sibling-visibility restore")
+        report["visibilityFixMarkers"] = ["SiblingProcessVisibility", "CodexApplication",
+                                         "makeSiblingVisible"]
         report["dexCount"] = sum(1 for n in names if n.endswith(".dex"))
 
     # The merged manifest is the authority for the installed package id.
