@@ -432,10 +432,26 @@ def build_bootstrap(package_id: str) -> None:
                       "--prefix", str(openssl_prefix()), "--inventory", str(inventory / "runtime-inventory.h"),
                       "--libraries", str(libraries), "--output", str(output),
                       "--launch-origin", "android-app", "--package-id", package_id])
-    # The produced library replaces the published one in the payload.
-    shutil.copy2(output / "libcodex_app_bootstrap.so",
-                 PAYLOAD / "executor-jni" / "arm64-v8a" / "libcodex_app_bootstrap.so")
-    log("build", "rebuilt libcodex_app_bootstrap.so for " + package_id)
+    # The produced library replaces the published one in the payload, so the
+    # deployment inventory must describe the rebuilt bytes: app/build.gradle
+    # re-hashes every packaged library at configuration time and fails with
+    # "Executor JNI hash differs" otherwise.
+    name = "libcodex_app_bootstrap.so"
+    produced = output / name
+    shutil.copy2(produced, PAYLOAD / "executor-jni" / "arm64-v8a" / name)
+    deployment_path = PAYLOAD / "executor-assets" / "codex-executor-deployment.json"
+    deployment = json.loads(deployment_path.read_text(encoding="utf-8"))
+    actual = digest(produced)
+    if deployment["nativeLibraries"].get(name) != actual:
+        deployment["nativeLibraries"][name] = actual
+        deployment_path.write_text(json.dumps(deployment, indent=2, sort_keys=True) + "\n",
+                                   encoding="utf-8")
+        log("build", "recorded rebuilt digest for " + name + ": " + actual)
+        # The qualification record pins the deployment digest, so refresh the chain.
+        run("build", [sys.executable, "-B", ROOT / "tools" / "workstation"
+                      / "rewrite-application-id.py", "--assets", PAYLOAD / "executor-assets",
+                      "--from", "com.ai.codex", "--to", package_id])
+    log("build", "rebuilt " + name + " for " + package_id)
 
 
 def build():
