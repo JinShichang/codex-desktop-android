@@ -451,6 +451,23 @@ def build_python_cli(package_id: str) -> None:
             deployment["pythonSha256"] = actual
         deployment_path.write_text(json.dumps(deployment, indent=2, sort_keys=True) + "\n",
                                    encoding="utf-8")
+        # PythonRuntime re-checks every runtimeAliases[].sha256 against this same
+        # nativeLibraries entry, so the alias inventory must follow the rebuild or
+        # admission fails with "Python ELF alias digest differs".
+        runtime_path = PAYLOAD / "executor-assets" / deployment["pythonRuntime"]["manifestAsset"]
+        runtime = json.loads(runtime_path.read_text(encoding="utf-8"))
+        touched = 0
+        for alias in runtime.get("runtimeAliases", []):
+            if alias.get("nativeLibrary") == record_name and alias.get("sha256") != actual:
+                alias["sha256"] = actual
+                touched += 1
+        if touched:
+            runtime_path.write_text(json.dumps(runtime, indent=2, sort_keys=True) + "\n",
+                                    encoding="utf-8")
+            deployment["pythonRuntime"]["manifestSha256"] = digest(runtime_path)
+            deployment_path.write_text(json.dumps(deployment, indent=2, sort_keys=True) + "\n",
+                                       encoding="utf-8")
+            log("build", "refreshed " + str(touched) + " runtime alias digests")
         run("build", [sys.executable, "-B", ROOT / "tools" / "workstation"
                       / "rewrite-application-id.py", "--assets", PAYLOAD / "executor-assets",
                       "--from", "com.ai.codex", "--to", package_id])
