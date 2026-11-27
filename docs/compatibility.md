@@ -12,6 +12,14 @@
 
 [后端与环境架构](architecture.md) · [普通 UID 诊断工具](../tools/phone-probe/README.md) · [手机操控记录](phone-mcp-dshgo-port.md)
 
+## PRoot seccomp 自动选择
+
+安装准备、桌面会话和普通 Python 工具入口会先执行一个固定的嵌套启动测试。只有 PRoot 实际报告已启用 seccomp 加速，且多次 exec 与子进程测试正常退出时，才保留加速。若失败或未检测到加速，再验证关闭加速的兼容模式；兼容模式通过后才设置 `PROOT_NO_SECCOMP=1`。两种模式都失败时终止原操作，不执行安装脚本或用户任务，也不把设备永久标记为“不支持”。
+
+结果保存在应用私有目录 `files/.proot-compat/`，按系统指纹、内核、APK 原生库位置及文件元数据、实际 rootfs 路径区分。更换系统、APK 原生库或运行环境会重新探测。缓存只保存模式与原因，不保存账号或会话；不扫描或校验整个环境包。普通 Python 工具与 Java 应用进程分开探测，避免直接复用不同执行入口的结果。
+
+这里关闭的仅是 PRoot 的 seccomp 加速，不会关闭 Android 的 seccomp 安全策略。受保护 GNU 执行器原有的 `PROOT_NO_SECCOMP=1` 涉及路径转换与权限过滤顺序，继续保留。主机测试覆盖自动选择、兼容回退、缓存失效、超时和 Python `-I` 入口；具体 Android 机型的加速可用性与性能仍需实机验证。
+
 ## 设备验收
 
 ### v76 至 v80 本地测试版

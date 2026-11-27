@@ -81,8 +81,10 @@ public final class AndroidInactiveClientInstaller {
                     throw new IOException("Android-verified APK native installation component is missing");
             }
             Files.createSymbolicLink(work.resolve("native/libtalloc.so.2"),nativeDirectory.resolve("libtalloc.so"));
-            String output=InactiveClientInstallCommand.run(InactiveClientInstallCommand.create(nativeDirectory,root,work,
-                installationId,rootIdentity,timeoutMillis),timeoutMillis,work.resolve("runner.log"),Process::destroy);
+            ProcessBuilder process=InactiveClientInstallCommand.create(nativeDirectory,root,work,
+                installationId,rootIdentity,timeoutMillis);
+            ProotEnvironment.prepare(process, context.getFilesDir().toPath(), android.os.Build.FINGERPRINT);
+            String output=InactiveClientInstallCommand.run(process,timeoutMillis,work.resolve("runner.log"),Process::destroy);
             String receipt=null;
             for(String line:output.split("\n")) if(line.startsWith("CODEX_CLIENT_RECEIPT=")) {
                 if(receipt!=null) throw new IOException("Duplicate inactive client receipt");

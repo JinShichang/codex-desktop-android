@@ -36,6 +36,7 @@ public final class CodexLocalTools {
         File tools = directory(files, "codex-tools", uid);
         File bin = directory(files, "codex-tools/bin", uid);
         writeAsset(context, tools, "codex_tools.py", "codex-tools/codex_tools.py", uid);
+        writeAsset(context, tools, "proot_compat.py", "codex-tools/proot_compat.py", uid);
         writeAsset(context, tools, "phone_relay.py", "codex-android/scripts/phone_relay.py", uid);
         JSONObject config = new JSONObject();
         config.put("schema", "codex.local-tools.v1");
@@ -46,6 +47,7 @@ public final class CodexLocalTools {
         config.put("guestUser", identity.user);
         config.put("guestIds", identity.prootIds());
         config.put("versionCode", context.getPackageManager().getPackageInfo(context.getPackageName(), 0).getLongVersionCode());
+        config.put("prootPlatform", android.os.Build.FINGERPRINT);
         write(new File(tools, "installation.json"), (config.toString(2) + "\n").getBytes(StandardCharsets.UTF_8), uid);
         String target = context.getApplicationInfo().nativeLibraryDir + "/libcodex_tools_launcher.so";
         if (!new File(target).isFile()) throw new IOException("Codex tool launcher is absent from the APK");

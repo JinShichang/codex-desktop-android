@@ -71,6 +71,7 @@ jobs:
           python3 -B tools/ci/check-source-integrity.py
           python3 -B -m unittest discover -s tools/ci -p 'test_*release*.py' -v
           python3 -B -m unittest discover -s tools/runtime -p 'test_candidate_build.py' -v
+          python3 -B -m unittest discover -s tools/runtime -p 'test_proot_compat.py' -v
           python3 -B -m unittest discover -s tools/install -p 'test_phone_image.py' -v
           python3 -B -m unittest discover -s tools/install -p 'test_build_phone_image.py' -v
           python3 -B -m unittest discover -s tools/install -p 'test_build_rootfs.py' -v

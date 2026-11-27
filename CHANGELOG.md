@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-11-27 — Probe PRoot seccomp acceleration before use
+
+- Select acceleration using a bounded, side-effect-free nested-exec probe under the actual Android app or Python tool entrypoint. A passing probe must also observe PRoot's acceleration banner.
+- Validate the compatible path before disabling acceleration. If both probes fail, stop before running the installer or user command; never retry user work automatically.
+- Cache results separately for Java and Python callers, keyed by system and native runtime identity. Reprobe after ROM, kernel, APK native library or rootfs changes.
+- Include the policy module in APK assets and load it by its installed path with Python isolation enabled. Preserve the managed GNU executor's existing fixed syscall-translation policy.
+- Add JVM and Linux Python regressions for selection, cache invalidation, bounded cleanup and isolated tool startup. Android device validation remains pending.
+
 ## 2026-11-15 — IME stability and desktop high refresh
 
 - Keep a retained editor open through transient Electron visibility/context changes; validate passive hide requests using focus metadata and reject stale replies after a newer user gesture. Outside taps and native Activity pause still dismiss normally.

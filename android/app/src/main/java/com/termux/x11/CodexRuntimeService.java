@@ -789,6 +789,9 @@ public final class CodexRuntimeService extends Service {
             // Os.setenv above configures Xlorie in this process. Give the child
             // an explicit private directory too; ProcessBuilder owns its env map.
             builder.environment().put("TMPDIR", temp.getAbsolutePath());
+            com.ai.codex.install.ProotEnvironment.Selection prootMode = com.ai.codex.install.ProotEnvironment.prepare(
+                builder, getFilesDir().toPath(), android.os.Build.FINGERPRINT);
+            Log.i("Codex", "PRoot seccomp: " + prootMode);
             List<String> openArgs = new ArrayList<>(args.subList(0, args.size() - 2));
             Map<String, String> openEnvironment = new HashMap<>(builder.environment());
             mainHandler.post(() -> { conversationCommand = openArgs; conversationEnvironment = openEnvironment; });

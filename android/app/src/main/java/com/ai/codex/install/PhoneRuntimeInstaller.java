@@ -156,6 +156,7 @@ public final class PhoneRuntimeInstaller {
         builder.environment().put("PROOT_LOADER", nativeDir.resolve("libproot-loader.so").toString());
         builder.environment().put("PROOT_LOADER_32", nativeDir.resolve("libproot-loader32.so").toString());
         builder.environment().put("PROOT_TMP_DIR", work.toString());
+        ProotEnvironment.prepare(builder, context.getFilesDir().toPath(), android.os.Build.FINGERPRINT);
         Process process = builder.start();
         boolean interrupted = false;
         try {

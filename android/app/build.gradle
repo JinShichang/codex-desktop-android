@@ -250,6 +250,7 @@ def syncLocalToolsAssets = tasks.register('syncCodexToolsAssets', NativeFilesRpc
     from(rootProject.file('../tools/runtime/install_phone_mcp.py')) { into 'codex-tools' }
     from(rootProject.file('../plugins/codex-android')) { into 'codex-android'; exclude '**/__pycache__/**', '**/*.pyc' }
     from(rootProject.file('../tools/runtime/codex_tools.py')) { into 'codex-tools' }
+    from(rootProject.file('../tools/runtime/proot_compat.py')) { into 'codex-tools' }
     from(rootProject.file('../tools/runtime/codex-workspace-provider.cjs')) { into 'codex-tools' }
     from(rootProject.file('../tools/runtime/install-workspace-provider.py')) { into 'codex-tools' }
     from(rootProject.file('../tools/runtime/codex_phone_profile.py')) { into 'codex-tools' }

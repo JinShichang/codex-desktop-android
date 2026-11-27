@@ -65,6 +65,7 @@ class Installation:
         if not re.fullmatch(r"[1-9][0-9]*:[1-9][0-9]*", self.ids):
             raise ValueError("Guest tools must use the selected nonroot identity")
         self.version = config["versionCode"]
+        self.proot_platform = config.get("prootPlatform", "")
         self.workspace_runtime = self.home + "/.cache/codex-runtimes/codex-primary-runtime"
 
     def tool_target(self, command):
@@ -229,6 +230,11 @@ def main():
     command, *rest = arguments
     if command in COMMANDS:
         args, env = installation.invocation(command, rest)
+        # The APK deliberately starts Python with -I, which excludes this
+        # script's directory from sys.path. Load only our installed sibling.
+        import runpy
+        compatibility = runpy.run_path(str(Path(__file__).with_name("proot_compat.py")))
+        compatibility["configure"](args, env, installation.files, installation.proot_platform)
         os.execve(args[0], args, env)
     if command == "status" and rest in ([], ["--logs"]):
         value = installation.status()

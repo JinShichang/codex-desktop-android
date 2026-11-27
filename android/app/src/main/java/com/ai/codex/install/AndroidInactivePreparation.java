@@ -290,6 +290,7 @@ public final class AndroidInactivePreparation {
         builder.environment().put("PROOT_LOADER",nativeDirectory.resolve("libproot-loader.so").toString());
         builder.environment().put("PROOT_LOADER_32",nativeDirectory.resolve("libproot-loader32.so").toString());
         builder.environment().put("PROOT_TMP_DIR",work.toString()); builder.environment().put("TMPDIR",work.toString());
+        ProotEnvironment.prepare(builder, context.getFilesDir().toPath(), android.os.Build.FINGERPRINT);
         return builder;
     }
     private static Path directoryChain(Path root,String relative,Storage storage) throws IOException {
