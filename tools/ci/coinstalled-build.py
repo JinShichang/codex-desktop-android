@@ -427,8 +427,12 @@ def build_python_cli(package_id: str) -> None:
     sdk = Path(env_json["sdk"])
     runtime_home = "/data/user/0/" + package_id + "/files/native-runtime-v1/python"
     environment = dict(os.environ, ANDROID_NDK_HOME=str(sdk / "ndk" / NDK_VERSION))
+    # Third argument: the verified official archive. Without it the script looks in
+    # downloads/native-python/inputs, which this CI does not populate.
+    archive = fetch(PYTHON_URL, WORK / "downloads" / PYTHON_PACKAGE, expected=PYTHON_SHA256)
     run("bootstrap", ["bash", str(ROOT / "tools" / "executor" / "bionic-runtime"
-                      / "build-python-cli.sh"), str(python_prefix()), runtime_home],
+                      / "build-python-cli.sh"), str(python_prefix()), runtime_home,
+                      str(archive)],
         env=environment)
     # build-python-cli.sh writes into a mktemp tree under repo/work and prints it.
     produced = sorted(ROOT.glob("work/codex-bionic-python-*/libcodex_python_cli.so"),
