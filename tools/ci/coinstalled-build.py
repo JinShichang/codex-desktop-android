@@ -196,6 +196,9 @@ def recover():
     apk = fetch(url, WORK / "base" / f"{version}.apk", expected=BASE_APK_SHA256)
     log("recover", "Base APK verified: " + BASE_APK_SHA256)
     extract_payload(apk)
+    # Reviewed sources replace the recovered ones before the id rewrite, so the
+    # rewrite refreshes the manifest digests over the code that will ship.
+    sync_source_assets()
     run("recover", [sys.executable, "-B", ROOT / "tools" / "workstation" / "rewrite-application-id.py",
                     "--assets", PAYLOAD / "executor-assets",
                     "--from", "com.ai.codex", "--to", package_id])
@@ -337,6 +340,42 @@ def record_transport_digest_from_apk(apk: Path) -> bool:
                   / "rewrite-application-id.py", "--assets", PAYLOAD / "executor-assets",
                   "--from", "com.ai.codex", "--to", package_id])
     return True
+
+
+# Executor Python modules this build modifies. They ship inside the APK assets, so
+# a payload recovered from the published APK carries the published copies; the
+# local sources must replace them or the fix never reaches the device.
+# (payload-relative asset path, reviewed source path). The entry modules live in
+# the transport module's assets; shared executor modules live under tools/executor.
+SOURCE_SYNCED_ASSETS = (
+    ("codex-executor/codex_app_bootstrap.py",
+     ROOT / "tools" / "executor" / "shizuku-service" / "transport" / "src" / "main"
+     / "assets" / "codex-executor" / "codex_app_bootstrap.py"),
+    ("codex-executor/codex_native_bootstrap.py",
+     ROOT / "tools" / "executor" / "shizuku-service" / "transport" / "src" / "main"
+     / "assets" / "codex-executor" / "codex_native_bootstrap.py"),
+    ("codex-executor/tools/executor/native_session_recovery.py",
+     ROOT / "tools" / "executor" / "native_session_recovery.py"),
+)
+
+
+def sync_source_assets() -> None:
+    """Replace recovered executor modules with this checkout's reviewed sources.
+
+    recover() extracts the published APK verbatim, so editing a module here would
+    otherwise have no effect: the packaged asset would still be the upstream copy.
+    """
+    synced = []
+    for relative, source in SOURCE_SYNCED_ASSETS:
+        if not source.is_file():
+            raise SystemExit("Missing reviewed executor source: " + str(source))
+        target = PAYLOAD / "executor-assets" / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if not target.is_file() or target.read_bytes() != source.read_bytes():
+            shutil.copy2(source, target)
+            synced.append(relative)
+    if synced:
+        log("recover", "synced reviewed executor sources: " + ", ".join(synced))
 
 
 def openssl_prefix() -> Path:

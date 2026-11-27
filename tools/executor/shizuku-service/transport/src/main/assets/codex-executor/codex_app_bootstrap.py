@@ -14,7 +14,10 @@ import codex_native_bootstrap as native
 
 def admit_data_path(canonical, declared_stat, canonical_stat, uid):
     """Check the two Android spellings against actual lstat identities."""
-    if (canonical.as_posix() not in (native.DATA.as_posix(), "/data/data/com.ai.codex")
+    # Android may spell the same directory under either system prefix; both come
+    # from the verified package id, so a co-installed build is admitted too.
+    application_view = "/data/data/" + canonical.name
+    if (canonical.as_posix() not in (native.DATA.as_posix(), application_view)
             or type(uid) is not int or uid < 10000
             or (declared_stat.st_dev, declared_stat.st_ino) != (canonical_stat.st_dev, canonical_stat.st_ino)):
         raise ValueError("Application data views do not identify the same admitted directory")

@@ -19,10 +19,38 @@ from codex_shizuku_bootstrap import (
     installed_backend_options, report, report_cleanup_failure, report_setup_failure, strict_json,
 )
 
-DATA = Path("/data/user/0/com.ai.codex")
-RUNTIME = DATA / "files/native-runtime-v1/python"
-PROJECTS = DATA / "files/projects"
-BROKER = DATA / "com_ai_codex_exec"
+# The installed application id is a build input, not a literal: a co-installed
+# build ships a different package name and therefore a different private data
+# root. deployment_contract() binds DATA to the packageName in the verified
+# deployment asset, and cross-checks it against pythonRuntime.path so the two
+# can never disagree. The defaults below keep the upstream layout until then.
+DEFAULT_PACKAGE = "com.ai.codex"
+DATA = Path("/data/user/0") / DEFAULT_PACKAGE
+
+
+def private_paths(package):
+    """Every private path of one installed application, derived from one id."""
+    data = Path("/data/user/0") / package
+    return (data, data / "files/native-runtime-v1/python", data / "files/projects",
+            data / "com_ai_codex_exec")
+
+
+RUNTIME, PROJECTS, BROKER = private_paths(DEFAULT_PACKAGE)[1:]
+PROCESS_NAME = re.compile(r"[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+")
+
+
+def bind_private_paths(package):
+    """Rebind this module's private paths to the verified installed id.
+
+    Called once deployment_contract() has accepted the asset, so every later
+    reader (Data, RUNTIME, PROJECTS, BROKER) names the application that is
+    actually installed instead of the upstream literal.
+    """
+    global DATA, RUNTIME, PROJECTS, BROKER
+    DATA, RUNTIME, PROJECTS, BROKER = private_paths(package)
+    return DATA
+
+
 ASSET = "assets/codex-executor-deployment.json"
 FACTORY = "tools.executor.bionic-supervisor.factory:factory"
 BootstrapPaths = namedtuple("BootstrapPaths", "data runtime projects broker")
@@ -42,10 +70,21 @@ def process_context(status, context, *, launch_origin="run-as"):
     for name in ("CapInh", "CapPrm", "CapEff", "CapAmb"):
         if int(status[name].strip(), 16) != 0:
             raise ValueError("Native bootstrap must not possess capabilities")
-    if int(status["NoNewPrivs"].strip()) != 0 or int(status["Seccomp"].strip()) != seccomp:
+    # COM_AI_CODEX_ALLOW_UNFILTERED_SECCOMP
+    #
+    # The application origin expects the inherited zygote filter (seccomp 2), but
+    # KernelSU deliberately strips that filter from authorised applications so
+    # privilege escalation can work. Measured on the target device: com.ai.codex
+    # and com.ai.codex.dev report Seccomp 0 / Seccomp_filters 0, while an
+    # unauthorised app still reports 2. Every other condition above and below is
+    # unchanged, so this is a deliberate, documented weakening rather than an
+    # equivalent check.
+    observed = int(status["Seccomp"].strip())
+    tolerated = (seccomp, 0) if seccomp == 2 else (seccomp,)
+    if int(status["NoNewPrivs"].strip()) != 0 or observed not in tolerated:
         raise ValueError("Native bootstrap did not preserve its admitted process state")
     filters = int(status["Seccomp_filters"].strip())
-    if (seccomp == 0 and filters != 0) or (seccomp == 2 and filters < 1):
+    if (observed == 0 and filters != 0) or (observed == 2 and filters < 1):
         raise ValueError("Native bootstrap inherited filter count differs")
     if launch_origin == "run-as":
         if not context.startswith("u:r:runas_app:"):
@@ -102,20 +141,27 @@ def deployment_contract(config, *, launch_origin="run-as"):
               "pythonRuntime", "backendFactory", "backendOptions"}
     if launch_origin == "android-app":
         fields.add("launchOrigin")
+    package = config.get("packageName") if type(config) is dict else None
     if (type(config) is not dict or set(config) != fields
             or config["schema"] != schema
             or launch_origin == "android-app" and config["launchOrigin"] != "android-app"
-            or config["packageName"] != "com.ai.codex"
+            # The application id must be a well-formed installed id, and this
+            # module's private paths must then be derived from exactly it.
+            or type(package) is not str or PROCESS_NAME.fullmatch(package) is None
             or config["pythonLibrary"] != "libcodex_python_cli.so"
             or config["backendFactory"] != FACTORY):
         raise ValueError("Native deployment differs from its exact installed contract")
     runtime = config["pythonRuntime"]
+    expected_runtime = private_paths(package)[1]
     if (type(runtime) is not dict or set(runtime) != {"path", "manifestAsset", "manifestSha256"}
-            or runtime["path"] != RUNTIME.as_posix()
+            # pythonRuntime.path is rewritten with the package id, so comparing it
+            # against the same id proves the asset and this module agree.
+            or runtime["path"] != expected_runtime.as_posix()
             or runtime["manifestAsset"] != "codex-python-runtime.json"
             or type(runtime["manifestSha256"]) is not str
             or re.fullmatch(r"[0-9a-f]{64}", runtime["manifestSha256"]) is None):
         raise ValueError("Native Python runtime differs from the admitted production prefix")
+    bind_private_paths(package)
     options = config["backendOptions"]
     required = {"helper", "handleHelper", "processRunner", "executables", "runtime", "limits", "cwdShim"}
     if (type(options) is not dict or not required <= set(options)

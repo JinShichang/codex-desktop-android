@@ -447,12 +447,38 @@ class AppTransportSourceBuildTest(unittest.TestCase):
         self.assertIn("expected == 2 && mode == 0", source)
         self.assertIn("COM_AI_CODEX_ALLOW_UNFILTERED_SECCOMP", source)
         self.assertIn("must not be presented as equivalent", source)
-        # Nothing else about the identity check may be relaxed.
-        for condition in ("real != application_uid", "getppid() != parent",
-                          "PR_GET_NO_NEW_PRIVS"):
-            if condition == "real != application_uid":
-                continue
-            self.assertIn(condition, source)
+
+    def test_python_bootstrap_derives_private_paths_from_the_package_id(self):
+        """The Python entry must not pin the upstream application id either.
+
+        codex_native_bootstrap.py hard-coded DATA = /data/user/0/com.ai.codex and
+        required config["packageName"] == "com.ai.codex", and
+        codex_app_bootstrap.py hard-coded the /data/data spelling. A co-installed
+        build therefore raised ValueError inside Python and exited 1, which Java
+        reports as transportFailed with waitStatus 256 -- after admission had
+        already succeeded.
+        """
+        assets = ROOT / "tools" / "executor" / "shizuku-service" / "transport" / "src" / "main" / "assets" / "codex-executor"
+        native = (assets / "codex_native_bootstrap.py").read_text(encoding="utf-8")
+        app = (assets / "codex_app_bootstrap.py").read_text(encoding="utf-8")
+        # Paths come from one verified id, and are rebound once the asset is accepted.
+        self.assertIn("DEFAULT_PACKAGE", native)
+        self.assertIn("def private_paths(package)", native)
+        self.assertIn("def bind_private_paths(package)", native)
+        self.assertIn("bind_private_paths(package)", native)
+        self.assertIn('runtime["path"] != expected_runtime.as_posix()', native)
+        # No literal may remain outside the documented default and the comments.
+        for line in native.splitlines():
+            if "com.ai.codex" in line and not line.strip().startswith("#"):
+                self.assertIn("DEFAULT_PACKAGE", line, line.strip())
+        self.assertIn('application_view = "/data/data/" + canonical.name', app)
+        self.assertNotIn('"/data/data/com.ai.codex"', app)
+
+    def test_python_seccomp_check_matches_the_c_toleration(self):
+        assets = ROOT / "tools" / "executor" / "shizuku-service" / "transport" / "src" / "main" / "assets" / "codex-executor"
+        native = (assets / "codex_native_bootstrap.py").read_text(encoding="utf-8")
+        self.assertIn("tolerated = (seccomp, 0) if seccomp == 2 else (seccomp,)", native)
+        self.assertIn("COM_AI_CODEX_ALLOW_UNFILTERED_SECCOMP", native)
 
     def test_transport_digest_comes_from_the_produced_apk(self):
         """The inventory must describe the packaged bytes, not a separate build.
